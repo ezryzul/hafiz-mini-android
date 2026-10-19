@@ -1,14 +1,10 @@
-HAFIZ MINI ANDROID V3 BM
+HAFIZ MINI ANDROID V4 BM
 =========================
+- Standalone companion untuk Lovely Accounts.
+- Smart Blank Form: paste bahasa biasa -> Extract -> Preview/Edit -> Create Invoice/Quotation.
+- Customer existing dipadankan mengikut Phone > Email > Nama/Company.
+- Upload gambar/PDF resit -> OCR -> Preview/Edit -> Simpan Pembelian.
+- Laporan Hari Ini dan Outstanding Invoice terus dalam app.
+- Login sekali menggunakan HAFIZ_OAUTH_PASSWORD. App menerima token device 90 hari; API key/MySQL password tidak disimpan dalam app.
 
-Perubahan V3
-------------
-- Tidak lagi membuka halaman plugin Hafiz.
-- Membuka aplikasi ChatGPT Android terus jika dipasang.
-- Jika ChatGPT tidak dipasang, fallback ke https://chatgpt.com/
-- Butang cepat menyalin arahan Hafiz ke clipboard.
-- Tiada API key, MCP token atau password Lovely Accounts disimpan dalam app.
-
-Build APK
----------
-GitHub Actions build automatik selepas push ke branch main.
+Memerlukan Lovely Accounts v1.8.6 atau lebih baru.
