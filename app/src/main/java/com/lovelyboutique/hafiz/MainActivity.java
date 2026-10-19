@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import android.speech.RecognizerIntent;
 import android.text.InputType;
 import android.view.View;
 import android.widget.*;
@@ -20,10 +21,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.ArrayList;
 
 public class MainActivity extends Activity {
     private static final String BASE = "https://accounting.lovelyboutique.com.my/api/hafiz-mobile/v1";
     private static final int PICK_RECEIPT = 4401;
+    private static final int VOICE_INPUT = 4402;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
     private String token = "";
@@ -63,6 +66,7 @@ public class MainActivity extends Activity {
     }
 
     private void setupActions() {
+        findViewById(R.id.btnVoiceLive).setOnClickListener(v -> startVoiceInput());
         findViewById(R.id.btnExtract).setOnClickListener(v -> extractSmartText());
         btnCreateDoc.setOnClickListener(v -> createDocument());
         findViewById(R.id.btnReceipt).setOnClickListener(v -> pickReceipt());
@@ -137,9 +141,42 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void startVoiceInput(){
+        try{
+            Intent intent=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ms-MY");
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ms-MY");
+            intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Cakap dengan Hafiz...");
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+            startActivityForResult(intent,VOICE_INPUT);
+        }catch(Exception e){
+            toast("Voice input tidak tersedia pada telefon ini.");
+        }
+    }
+
+    private void handleVoiceResult(Intent data){
+        ArrayList<String> results=data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+        if(results==null||results.isEmpty())return;
+        String spoken=results.get(0).trim();
+        if(spoken.isEmpty())return;
+        etSmartText.setText(spoken);
+        tvDocResult.setText("Hafiz dengar: \""+spoken+"\"\nSedang extract detail...");
+        extractSmartText();
+    }
+
     private void pickReceipt(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"image/jpeg","image/png","image/webp","application/pdf"});startActivityForResult(i,PICK_RECEIPT);}
 
-    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode==PICK_RECEIPT&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null)scanReceipt(data.getData());}
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==VOICE_INPUT&&resultCode==RESULT_OK&&data!=null){
+            handleVoiceResult(data);
+            return;
+        }
+        if(requestCode==PICK_RECEIPT&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null){
+            scanReceipt(data.getData());
+        }
+    }
 
     private void scanReceipt(Uri uri){tvReceiptResult.setText("Membaca resit...");runIo(() -> {JSONObject r=uploadReceipt(uri);runOnUiThread(() -> {etReceiptDate.setText(r.optString("document_date",LocalDate.now().toString()));etSupplier.setText(r.optString("supplier"));etReceiptAmount.setText(r.optDouble("amount",0)>0?String.valueOf(r.optDouble("amount")):"");etReceiptCategory.setText(r.optString("category"));etReceiptRef.setText(r.optString("document_no"));tvReceiptResult.setText("OCR siap. Confidence "+r.optDouble("confidence",0)+"%. Semak sebelum simpan.");});});}
 
