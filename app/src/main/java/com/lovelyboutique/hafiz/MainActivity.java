@@ -155,7 +155,25 @@ public class MainActivity extends Activity {
     private void setBusy(String s){if(s!=null)tvDocResult.setText(s);}
 
     private void runIo(IOTask task){io.submit(() -> {try{task.run();}catch(Exception e){e.printStackTrace();runOnUiThread(() -> handleError(e));}});}
-    private void handleError(Exception e){String m=e.getMessage()==null?"Ralat":e.getMessage();if(m.contains("401")||m.toLowerCase().contains("mobile login required")){prefs.edit().remove("token").apply();token="";toast("Sesi Hafiz tamat. Login semula.");showLogin();}else toast(m);setBusy(null);}
+    private void handleError(Exception e){
+        String m=e.getMessage()==null?"Ralat":e.getMessage();
+        boolean authExpired=(m.contains("401")||m.toLowerCase().contains("mobile login required"));
+        if(authExpired && token!=null && !token.isEmpty()){
+            prefs.edit().remove("token").apply();
+            token="";
+            toast("Sesi Hafiz tamat. Login semula.");
+            showLogin();
+        }else{
+            if(m.contains("Incorrect Hafiz password")){
+                toast("Password Hafiz tidak betul. Gunakan nilai HAFIZ_OAUTH_PASSWORD yang sama seperti di Hostinger.");
+            }else if(m.contains("401")){
+                toast("Login gagal. Semak HAFIZ_OAUTH_PASSWORD.");
+            }else{
+                toast(m);
+            }
+        }
+        setBusy(null);
+    }
     private interface IOTask{void run() throws Exception;}
 
     private JSONObject requestJson(String method,String url,JSONObject body,boolean auth) throws Exception {
