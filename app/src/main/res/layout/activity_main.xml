@@ -1,97 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#FFF9FC">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
-
-        <ImageView
-            android:layout_width="88dp"
-            android:layout_height="88dp"
-            android:layout_gravity="center_horizontal"
-            android:src="@drawable/ic_hafiz"
-            android:contentDescription="Ikon Hafiz"
-            android:layout_marginTop="24dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:text="Hafiz"
-            android:textSize="30sp"
-            android:textStyle="bold"
-            android:textColor="#43233A"
-            android:layout_marginTop="12dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:text="Pengurus Akaun • Lovely Boutique"
-            android:textSize="15sp"
-            android:textColor="#765A6D"
-            android:layout_marginBottom="24dp" />
-
-        <Button
-            android:id="@+id/btnVoice"
-            android:layout_width="match_parent"
-            android:layout_height="62dp"
-            android:text="🎙  Bercakap dengan Hafiz"
-            android:textAllCaps="false"
-            android:textSize="17sp" />
-
-        <Button
-            android:id="@+id/btnSale"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="🧾  Rekod Jualan"
-            android:textAllCaps="false"
-            android:layout_marginTop="12dp" />
-
-        <Button
-            android:id="@+id/btnPurchase"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="🛒  Rekod Pembelian"
-            android:textAllCaps="false"
-            android:layout_marginTop="10dp" />
-
-        <Button
-            android:id="@+id/btnQuotation"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="📄  Buat Sebut Harga"
-            android:textAllCaps="false"
-            android:layout_marginTop="10dp" />
-
-        <Button
-            android:id="@+id/btnToday"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="📊  Laporan Hari Ini"
-            android:textAllCaps="false"
-            android:layout_marginTop="10dp" />
-
-        <Button
-            android:id="@+id/btnAccounts"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="💼  Buka Lovely Accounts"
-            android:textAllCaps="false"
-            android:layout_marginTop="10dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="V3 membuka aplikasi ChatGPT terus. Arahan pantas akan disalin ke clipboard supaya anda boleh tampal atau terus beri arahan melalui suara tanpa melalui halaman “Try in app”."
-            android:textSize="13sp"
-            android:textColor="#806A79"
-            android:lineSpacingExtra="3dp"
-            android:layout_marginTop="22dp"
-            android:layout_marginBottom="28dp" />
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#FFF9FC">
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="18dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+        <ImageView android:layout_width="62dp" android:layout_height="62dp" android:src="@drawable/ic_hafiz" android:contentDescription="Ikon Hafiz" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingStart="12dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Hafiz" android:textSize="26sp" android:textStyle="bold" android:textColor="#43233A" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Pengurus Akaun • V4" android:textColor="#765A6D" />
+        </LinearLayout>
+        <Button android:id="@+id/btnLogout" android:layout_width="wrap_content" android:layout_height="44dp" android:text="Log Keluar" android:textAllCaps="false" />
     </LinearLayout>
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="SMART INVOICE / QUOTATION" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="18dp" />
+    <Spinner android:id="@+id/spDocType" android:layout_width="match_parent" android:layout_height="48dp" />
+    <EditText android:id="@+id/etSmartText" android:layout_width="match_parent" android:layout_height="150dp" android:gravity="top" android:hint="Paste detail customer + produk dalam bahasa biasa...&#10;Contoh:&#10;ABC Sdn Bhd&#10;0123456789&#10;50 tiffin 2 tier RM45&#10;engraving RM3 x50&#10;delivery RM80&#10;valid 14 days" android:inputType="textMultiLine" android:padding="12dp" android:background="#FFFFFF" />
+    <Button android:id="@+id/btnExtract" android:layout_width="match_parent" android:layout_height="54dp" android:text="Extract Detail" android:textAllCaps="false" android:layout_marginTop="8dp" />
+    <TextView android:id="@+id/tvMatch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Customer: belum diperiksa" android:textColor="#6B5665" android:paddingTop="8dp" />
+    <EditText android:id="@+id/etCustomerName" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Nama / Company" />
+    <EditText android:id="@+id/etCustomerPhone" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Phone" android:inputType="phone" />
+    <EditText android:id="@+id/etCustomerEmail" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Email" android:inputType="textEmailAddress" />
+    <EditText android:id="@+id/etCustomerAddress" android:layout_width="match_parent" android:layout_height="72dp" android:gravity="top" android:hint="Alamat" android:inputType="textMultiLine" />
+    <EditText android:id="@+id/etItems" android:layout_width="match_parent" android:layout_height="120dp" android:gravity="top" android:hint="Item | Qty | Harga&#10;Contoh: Tiffin 2 tier | 50 | 45.00" android:inputType="textMultiLine" />
+    <EditText android:id="@+id/etDiscount" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Diskaun RM" android:inputType="numberDecimal" />
+    <EditText android:id="@+id/etDelivery" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Delivery RM" android:inputType="numberDecimal" />
+    <Button android:id="@+id/btnCreateDoc" android:layout_width="match_parent" android:layout_height="56dp" android:text="CREATE QUOTATION" android:textAllCaps="false" android:layout_marginTop="8dp" />
+    <TextView android:id="@+id/tvDocResult" android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:textColor="#3E3140" />
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="UPLOAD RESIT PEMBELIAN" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="20dp" />
+    <Button android:id="@+id/btnReceipt" android:layout_width="match_parent" android:layout_height="54dp" android:text="Pilih Gambar / PDF Resit" android:textAllCaps="false" />
+    <EditText android:id="@+id/etReceiptDate" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Tarikh YYYY-MM-DD" />
+    <EditText android:id="@+id/etSupplier" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Supplier" />
+    <EditText android:id="@+id/etReceiptAmount" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Jumlah RM" android:inputType="numberDecimal" />
+    <EditText android:id="@+id/etReceiptCategory" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Kategori" />
+    <EditText android:id="@+id/etReceiptRef" android:layout_width="match_parent" android:layout_height="48dp" android:hint="No. Resit / Reference" />
+    <Button android:id="@+id/btnSavePurchase" android:layout_width="match_parent" android:layout_height="56dp" android:text="Simpan Pembelian" android:textAllCaps="false" android:layout_marginTop="8dp" />
+    <TextView android:id="@+id/tvReceiptResult" android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" />
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="RINGKASAN" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="20dp" />
+    <Button android:id="@+id/btnDaily" android:layout_width="match_parent" android:layout_height="52dp" android:text="Laporan Hari Ini" android:textAllCaps="false" />
+    <Button android:id="@+id/btnOutstanding" android:layout_width="match_parent" android:layout_height="52dp" android:text="Outstanding Invoice" android:textAllCaps="false" android:layout_marginTop="8dp" />
+    <TextView android:id="@+id/tvSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="12dp" android:textColor="#3E3140" android:layout_marginBottom="30dp" />
+</LinearLayout>
 </ScrollView>
