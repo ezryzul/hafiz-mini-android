@@ -10,7 +10,26 @@
         <Button android:id="@+id/btnLogout" android:layout_width="wrap_content" android:layout_height="44dp" android:text="Log Keluar" android:textAllCaps="false" />
     </LinearLayout>
 
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="SMART INVOICE / QUOTATION" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="18dp" />
+    <Button
+        android:id="@+id/btnVoiceLive"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:text="🎙  CAKAP DENGAN HAFIZ"
+        android:textAllCaps="false"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginTop="18dp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Cakap dalam Bahasa Melayu. Hafiz akan masukkan ayat anda ke Smart Form dan extract detail secara automatik."
+        android:textColor="#6B5665"
+        android:textSize="13sp"
+        android:paddingBottom="14dp" />
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="INVOICE / QUOTATION PINTAR" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="18dp" />
     <Spinner android:id="@+id/spDocType" android:layout_width="match_parent" android:layout_height="48dp" />
     <EditText android:id="@+id/etSmartText" android:layout_width="match_parent" android:layout_height="150dp" android:gravity="top" android:hint="Paste detail customer + produk dalam bahasa biasa...&#10;Contoh:&#10;ABC Sdn Bhd&#10;0123456789&#10;50 tiffin 2 tier RM45&#10;engraving RM3 x50&#10;delivery RM80&#10;valid 14 days" android:inputType="textMultiLine" android:padding="12dp" android:background="#FFFFFF" />
     <Button android:id="@+id/btnExtract" android:layout_width="match_parent" android:layout_height="54dp" android:text="Extract Detail" android:textAllCaps="false" android:layout_marginTop="8dp" />
@@ -25,7 +44,7 @@
     <Button android:id="@+id/btnCreateDoc" android:layout_width="match_parent" android:layout_height="56dp" android:text="CREATE QUOTATION" android:textAllCaps="false" android:layout_marginTop="8dp" />
     <TextView android:id="@+id/tvDocResult" android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:textColor="#3E3140" />
 
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="UPLOAD RESIT PEMBELIAN" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="20dp" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="RESIT PEMBELIAN" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="20dp" />
     <Button android:id="@+id/btnReceipt" android:layout_width="match_parent" android:layout_height="54dp" android:text="Pilih Gambar / PDF Resit" android:textAllCaps="false" />
     <EditText android:id="@+id/etReceiptDate" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Tarikh YYYY-MM-DD" />
     <EditText android:id="@+id/etSupplier" android:layout_width="match_parent" android:layout_height="48dp" android:hint="Supplier" />
@@ -35,7 +54,7 @@
     <Button android:id="@+id/btnSavePurchase" android:layout_width="match_parent" android:layout_height="56dp" android:text="Simpan Pembelian" android:textAllCaps="false" android:layout_marginTop="8dp" />
     <TextView android:id="@+id/tvReceiptResult" android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" />
 
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="RINGKASAN" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="20dp" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="RINGKASAN AKAUN" android:textStyle="bold" android:textColor="#7C2D5B" android:layout_marginTop="20dp" />
     <Button android:id="@+id/btnDaily" android:layout_width="match_parent" android:layout_height="52dp" android:text="Laporan Hari Ini" android:textAllCaps="false" />
     <Button android:id="@+id/btnOutstanding" android:layout_width="match_parent" android:layout_height="52dp" android:text="Outstanding Invoice" android:textAllCaps="false" android:layout_marginTop="8dp" />
     <TextView android:id="@+id/tvSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="12dp" android:textColor="#3E3140" android:layout_marginBottom="30dp" />
