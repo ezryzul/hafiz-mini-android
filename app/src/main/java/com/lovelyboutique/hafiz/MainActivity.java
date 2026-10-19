@@ -84,7 +84,7 @@ public class MainActivity extends Activity {
         findViewById(R.id.btnLogout).setOnClickListener(v -> logout());
     }
 
-    private String getDeviceId(){
+    private String getHafizDeviceId(){
         String id=prefs.getString("device_id","");
         if(id.isEmpty()){id=UUID.randomUUID().toString();prefs.edit().putString("device_id",id).apply();}
         return id;
@@ -110,7 +110,7 @@ public class MainActivity extends Activity {
         runIo(() -> {
             JSONObject body=new JSONObject();
             body.put("password",password);
-            body.put("device_id",getDeviceId());
+            body.put("device_id",getHafizDeviceId());
             body.put("device_name",getDeviceName());
             body.put("platform","android");
             body.put("app_version","5.0.0");
