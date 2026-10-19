@@ -12,8 +12,8 @@ import android.widget.Toast;
 
 public class MainActivity extends Activity {
 
-    private static final String HAFIZ_PLUGIN_URL =
-        "https://chatgpt.com/plugins/plugin_asdk_app_6ad632b1e1a88191a59da0bae4188241";
+    private static final String CHATGPT_PACKAGE = "com.openai.chatgpt";
+    private static final String CHATGPT_WEB = "https://chatgpt.com/";
     private static final String LOVELY_ACCOUNTS_URL =
         "https://accounting.lovelyboutique.com.my/";
 
@@ -23,39 +23,48 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         findViewById(R.id.btnVoice).setOnClickListener(v ->
-            openHafizWithPrompt("Hafiz, saya nak beri arahan akaun melalui suara.")
+            openChatGPTWithPrompt("Hafiz, saya nak beri arahan akaun melalui suara.")
         );
-
         findViewById(R.id.btnSale).setOnClickListener(v ->
-            openHafizWithPrompt("Hafiz, saya nak rekod jualan baru.")
+            openChatGPTWithPrompt("Hafiz, saya nak rekod jualan baru.")
         );
-
         findViewById(R.id.btnPurchase).setOnClickListener(v ->
-            openHafizWithPrompt("Hafiz, saya nak rekod pembelian atau perbelanjaan baru.")
+            openChatGPTWithPrompt("Hafiz, saya nak rekod pembelian atau perbelanjaan baru.")
         );
-
         findViewById(R.id.btnQuotation).setOnClickListener(v ->
-            openHafizWithPrompt("Hafiz, saya nak buat sebut harga baru.")
+            openChatGPTWithPrompt("Hafiz, saya nak buat sebut harga baru.")
         );
-
         findViewById(R.id.btnToday).setOnClickListener(v ->
-            openHafizWithPrompt("Hafiz, tunjuk laporan akaun hari ini.")
+            openChatGPTWithPrompt("Hafiz, tunjuk laporan akaun hari ini.")
         );
-
         findViewById(R.id.btnAccounts).setOnClickListener(v ->
             openUrl(LOVELY_ACCOUNTS_URL)
         );
     }
 
-    private void openHafizWithPrompt(String prompt) {
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+    private void openChatGPTWithPrompt(String prompt) {
+        ClipboardManager clipboard =
+            (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         clipboard.setPrimaryClip(ClipData.newPlainText("Arahan Hafiz", prompt));
+
+        Intent launchIntent = getPackageManager().getLaunchIntentForPackage(CHATGPT_PACKAGE);
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(launchIntent);
+            Toast.makeText(
+                this,
+                "ChatGPT dibuka. Arahan Hafiz telah disalin — tampal atau terus guna suara.",
+                Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
         Toast.makeText(
             this,
-            "Arahan telah disalin. Bila ChatGPT terbuka, tampal arahan atau tekan ikon suara.",
+            "Aplikasi ChatGPT tidak dijumpai. Membuka ChatGPT melalui pelayar.",
             Toast.LENGTH_LONG
         ).show();
-        openUrl(HAFIZ_PLUGIN_URL);
+        openUrl(CHATGPT_WEB);
     }
 
     private void openUrl(String url) {
@@ -64,7 +73,11 @@ public class MainActivity extends Activity {
         try {
             startActivity(intent);
         } catch (ActivityNotFoundException e) {
-            Toast.makeText(this, "Tiada pelayar atau aplikasi yang boleh membuka pautan ini.", Toast.LENGTH_LONG).show();
+            Toast.makeText(
+                this,
+                "Tiada pelayar atau aplikasi yang boleh membuka pautan ini.",
+                Toast.LENGTH_LONG
+            ).show();
         }
     }
 }
