@@ -87,7 +87,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Butang cepat akan membuka Hafiz dalam ChatGPT bersama arahan siap. Anda hanya perlu sambung bercakap atau menaip maklumat tambahan."
+            android:text="V3 membuka aplikasi ChatGPT terus. Arahan pantas akan disalin ke clipboard supaya anda boleh tampal atau terus beri arahan melalui suara tanpa melalui halaman “Try in app”."
             android:textSize="13sp"
             android:textColor="#806A79"
             android:lineSpacingExtra="3dp"
