@@ -5,8 +5,8 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.speech.RecognizerIntent;
 import android.text.InputType;
 import android.view.View;
 import android.widget.*;
@@ -19,14 +19,13 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.ArrayList;
 
 public class MainActivity extends Activity {
     private static final String BASE = "https://accounting.lovelyboutique.com.my/api/hafiz-mobile/v1";
     private static final int PICK_RECEIPT = 4401;
-    private static final int VOICE_INPUT = 4402;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
     private String token = "";
@@ -34,7 +33,7 @@ public class MainActivity extends Activity {
 
     private Spinner spDocType;
     private EditText etSmartText, etCustomerName, etCustomerPhone, etCustomerEmail, etCustomerAddress, etItems, etDiscount, etDelivery;
-    private TextView tvMatch, tvDocResult, tvReceiptResult, tvSummary;
+    private TextView tvMatch, tvDocResult, tvReceiptResult, tvSummary, tvVoiceCost, tvVoiceRemaining, tvVoiceActual, tvDeviceName;
     private EditText etReceiptDate, etSupplier, etReceiptAmount, etReceiptCategory, etReceiptRef;
     private Button btnCreateDoc;
 
@@ -46,7 +45,13 @@ public class MainActivity extends Activity {
         bindViews();
         setupDocType();
         setupActions();
+        tvDeviceName.setText(getDeviceName());
         if (token.isEmpty()) showLogin(); else checkStatus();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if(!token.isEmpty()) refreshUsage();
     }
 
     private void bindViews() {
@@ -54,6 +59,7 @@ public class MainActivity extends Activity {
         etCustomerName=findViewById(R.id.etCustomerName); etCustomerPhone=findViewById(R.id.etCustomerPhone); etCustomerEmail=findViewById(R.id.etCustomerEmail); etCustomerAddress=findViewById(R.id.etCustomerAddress);
         etItems=findViewById(R.id.etItems); etDiscount=findViewById(R.id.etDiscount); etDelivery=findViewById(R.id.etDelivery); btnCreateDoc=findViewById(R.id.btnCreateDoc); tvDocResult=findViewById(R.id.tvDocResult);
         etReceiptDate=findViewById(R.id.etReceiptDate); etSupplier=findViewById(R.id.etSupplier); etReceiptAmount=findViewById(R.id.etReceiptAmount); etReceiptCategory=findViewById(R.id.etReceiptCategory); etReceiptRef=findViewById(R.id.etReceiptRef); tvReceiptResult=findViewById(R.id.tvReceiptResult); tvSummary=findViewById(R.id.tvSummary);
+        tvVoiceCost=findViewById(R.id.tvVoiceCost); tvVoiceRemaining=findViewById(R.id.tvVoiceRemaining); tvVoiceActual=findViewById(R.id.tvVoiceActual); tvDeviceName=findViewById(R.id.tvDeviceName);
     }
 
     private void setupDocType() {
@@ -66,19 +72,34 @@ public class MainActivity extends Activity {
     }
 
     private void setupActions() {
-        findViewById(R.id.btnVoiceLive).setOnClickListener(v -> startVoiceInput());
+        findViewById(R.id.btnVoiceLive).setOnClickListener(v -> openVoice());
+        findViewById(R.id.btnDevices).setOnClickListener(v -> showDevices());
         findViewById(R.id.btnExtract).setOnClickListener(v -> extractSmartText());
         btnCreateDoc.setOnClickListener(v -> createDocument());
         findViewById(R.id.btnReceipt).setOnClickListener(v -> pickReceipt());
         findViewById(R.id.btnSavePurchase).setOnClickListener(v -> savePurchase());
         findViewById(R.id.btnDaily).setOnClickListener(v -> getDaily());
         findViewById(R.id.btnOutstanding).setOnClickListener(v -> getOutstanding());
-        findViewById(R.id.btnLogout).setOnClickListener(v -> {prefs.edit().remove("token").apply(); token=""; showLogin();});
+        findViewById(R.id.btnOpenAccounts).setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://accounting.lovelyboutique.com.my/"))));
+        findViewById(R.id.btnLogout).setOnClickListener(v -> logout());
+    }
+
+    private String getDeviceId(){
+        String id=prefs.getString("device_id","");
+        if(id.isEmpty()){id=UUID.randomUUID().toString();prefs.edit().putString("device_id",id).apply();}
+        return id;
+    }
+
+    private String getDeviceName(){
+        String maker=(Build.MANUFACTURER==null?"Android":Build.MANUFACTURER).trim();
+        String model=(Build.MODEL==null?"Phone":Build.MODEL).trim();
+        if(model.toLowerCase().startsWith(maker.toLowerCase())) return model;
+        return maker+" "+model;
     }
 
     private void showLogin() {
         final EditText pass=new EditText(this); pass.setHint("HAFIZ_OAUTH_PASSWORD"); pass.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD); pass.setPadding(30,20,30,20);
-        AlertDialog dlg=new AlertDialog.Builder(this).setTitle("Sambung Hafiz").setMessage("Masukkan password Hafiz sekali untuk sambungkan app dengan Lovely Accounts.").setView(pass).setCancelable(false)
+        AlertDialog dlg=new AlertDialog.Builder(this).setTitle("Sambung Hafiz").setMessage("Masukkan password Hafiz sekali untuk sambungkan phone ini dengan Lovely Accounts.").setView(pass).setCancelable(false)
                 .setPositiveButton("Sambung", null).setNegativeButton("Tutup",(d,w)->finish()).create();
         dlg.setOnShowListener(x -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> login(pass.getText().toString(), dlg)));
         dlg.show();
@@ -87,15 +108,64 @@ public class MainActivity extends Activity {
     private void login(String password, AlertDialog dlg) {
         if(password.trim().isEmpty()){toast("Masukkan password Hafiz.");return;}
         runIo(() -> {
-            JSONObject body=new JSONObject(); body.put("password",password);
+            JSONObject body=new JSONObject();
+            body.put("password",password);
+            body.put("device_id",getDeviceId());
+            body.put("device_name",getDeviceName());
+            body.put("platform","android");
+            body.put("app_version","5.0.0");
             JSONObject r=requestJson("POST", BASE+"/login", body, false);
             String t=r.optString("token",""); if(t.isEmpty()) throw new Exception(r.optString("detail","Login gagal"));
             token=t; prefs.edit().putString("token",t).apply();
-            runOnUiThread(() -> {dlg.dismiss();toast("Hafiz sudah disambungkan.");checkStatus();});
+            runOnUiThread(() -> {dlg.dismiss();toast("Phone ini sudah disambungkan dengan Hafiz.");checkStatus();refreshUsage();});
         });
     }
 
-    private void checkStatus(){runIo(() -> {JSONObject r=requestJson("GET",BASE+"/status",null,true); runOnUiThread(() -> toast(r.optBoolean("ok")?"Lovely Accounts bersedia.":"Connection belum bersedia."));});}
+    private void logout(){
+        final String old=token;
+        token=""; prefs.edit().remove("token").apply();
+        if(!old.isEmpty()) io.submit(() -> {try{requestJsonWithToken("POST",BASE+"/logout",new JSONObject(),old);}catch(Exception ignored){}});
+        showLogin();
+    }
+
+    private void checkStatus(){runIo(() -> {JSONObject r=requestJson("GET",BASE+"/status",null,true); runOnUiThread(() -> {toast(r.optBoolean("ok")?"Lovely Accounts bersedia.":"Connection belum bersedia.");refreshUsage();});});}
+
+    private void openVoice(){
+        if(token.isEmpty()){showLogin();return;}
+        Intent i=new Intent(this, VoiceActivity.class);
+        startActivity(i);
+    }
+
+    private void refreshUsage(){
+        if(token.isEmpty())return;
+        runIo(() -> {
+            JSONObject r=requestJson("GET",BASE+"/usage",null,true);
+            runOnUiThread(() -> {
+                double effective=r.optDouble("effective_spend_myr",0),limit=r.optDouble("monthly_limit_myr",30),remaining=r.optDouble("remaining_myr",Math.max(0,limit-effective));
+                tvVoiceCost.setText(String.format(java.util.Locale.US,"RM%.2f / RM%.2f",effective,limit));
+                tvVoiceRemaining.setText(String.format(java.util.Locale.US,"Baki RM%.2f",remaining));
+                if(r.optBoolean("actual_cost_available",false)) tvVoiceActual.setText(String.format(java.util.Locale.US,"Actual OpenAI ±RM%.2f  •  Live estimate RM%.2f",r.optDouble("actual_openai_myr_estimate",0),r.optDouble("estimated_live_myr",0)));
+                else tvVoiceActual.setText(String.format(java.util.Locale.US,"Live estimate RM%.2f  •  Actual cost perlukan OpenAI Admin Key",r.optDouble("estimated_live_myr",0)));
+            });
+        });
+    }
+
+    private void showDevices(){
+        if(token.isEmpty()){showLogin();return;}
+        runIo(() -> {
+            JSONObject r=requestJson("GET",BASE+"/devices",null,true); JSONArray arr=r.optJSONArray("devices"); if(arr==null)arr=new JSONArray();
+            final JSONArray devices=arr; final String[] labels=new String[devices.length()];
+            for(int i=0;i<devices.length();i++){JSONObject d=devices.optJSONObject(i);String s=d.optString("device_name","Phone");if(d.optBoolean("current"))s+="  • phone ini";if(!d.optBoolean("active",true))s+="  • revoked";labels[i]=s;}
+            runOnUiThread(() -> new AlertDialog.Builder(this).setTitle("Devices Connected").setItems(labels,(dialog,which)->{
+                JSONObject d=devices.optJSONObject(which);if(d==null)return;if(d.optBoolean("current")){toast("Ini phone yang sedang digunakan.");return;}if(!d.optBoolean("active",true)){toast("Device ini sudah direvoke.");return;}
+                new AlertDialog.Builder(this).setTitle("Revoke device?").setMessage(d.optString("device_name")).setPositiveButton("REVOKE",(x,w)->revokeDevice(d.optString("device_id"))).setNegativeButton("Batal",null).show();
+            }).setNegativeButton("Tutup",null).show());
+        });
+    }
+
+    private void revokeDevice(String id){
+        runIo(() -> {JSONObject r=requestJson("POST",BASE+"/devices/"+id+"/revoke",new JSONObject(),true);runOnUiThread(() -> toast(r.optBoolean("ok")?"Device access telah direvoke.":"Revoke gagal."));});
+    }
 
     private void extractSmartText() {
         String text=etSmartText.getText().toString().trim(); if(text.isEmpty()){toast("Paste atau tulis detail customer dan produk dahulu.");return;}
@@ -118,7 +188,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 etCustomerName.setText(name);etCustomerPhone.setText(phone);etCustomerEmail.setText(email);etCustomerAddress.setText(address);etItems.setText(finalItems);
                 etDiscount.setText(p.optDouble("discount",0)>0?String.valueOf(p.optDouble("discount")):"");etDelivery.setText(p.optDouble("delivery_fee",0)>0?String.valueOf(p.optDouble("delivery_fee")):"");
-                tvMatch.setText(finalMatch);tvDocResult.setText("Semak detail di atas. Edit jika perlu, kemudian tekan Create.");setBusy(null);
+                tvMatch.setText(finalMatch);tvDocResult.setText("Semak detail. Edit jika perlu, kemudian Create.");setBusy(null);
             });
         });
     }
@@ -141,51 +211,24 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void startVoiceInput(){
-        try{
-            Intent intent=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ms-MY");
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ms-MY");
-            intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Cakap dengan Hafiz...");
-            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
-            startActivityForResult(intent,VOICE_INPUT);
-        }catch(Exception e){
-            toast("Voice input tidak tersedia pada telefon ini.");
-        }
-    }
-
-    private void handleVoiceResult(Intent data){
-        ArrayList<String> results=data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-        if(results==null||results.isEmpty())return;
-        String spoken=results.get(0).trim();
-        if(spoken.isEmpty())return;
-        etSmartText.setText(spoken);
-        tvDocResult.setText("Hafiz dengar: \""+spoken+"\"\nSedang extract detail...");
-        extractSmartText();
-    }
-
     private void pickReceipt(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"image/jpeg","image/png","image/webp","application/pdf"});startActivityForResult(i,PICK_RECEIPT);}
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
-        if(requestCode==VOICE_INPUT&&resultCode==RESULT_OK&&data!=null){
-            handleVoiceResult(data);
-            return;
-        }
-        if(requestCode==PICK_RECEIPT&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null){
-            scanReceipt(data.getData());
-        }
+        if(requestCode==PICK_RECEIPT&&resultCode==RESULT_OK&&data!=null&&data.getData()!=null)scanReceipt(data.getData());
     }
 
     private void scanReceipt(Uri uri){tvReceiptResult.setText("Membaca resit...");runIo(() -> {JSONObject r=uploadReceipt(uri);runOnUiThread(() -> {etReceiptDate.setText(r.optString("document_date",LocalDate.now().toString()));etSupplier.setText(r.optString("supplier"));etReceiptAmount.setText(r.optDouble("amount",0)>0?String.valueOf(r.optDouble("amount")):"");etReceiptCategory.setText(r.optString("category"));etReceiptRef.setText(r.optString("document_no"));tvReceiptResult.setText("OCR siap. Confidence "+r.optDouble("confidence",0)+"%. Semak sebelum simpan.");});});}
 
-    private void savePurchase(){runIo(() -> {JSONObject b=new JSONObject();String supplier=etSupplier.getText().toString().trim();double amt=num(etReceiptAmount);if(amt<=0)throw new Exception("Jumlah pembelian mesti lebih daripada RM0.");b.put("purchase_date",emptyOr(etReceiptDate,LocalDate.now().toString()));b.put("supplier",supplier);b.put("description",supplier.isEmpty()?"Pembelian / perbelanjaan":"Pembelian dari "+supplier);b.put("amount",amt);b.put("category",etReceiptCategory.getText().toString().trim());b.put("reference",etReceiptRef.getText().toString().trim());b.put("payment_method","Tunai / Bank");JSONObject r=requestJson("POST",BASE+"/purchases",b,true);runOnUiThread(() -> tvReceiptResult.setText("Pembelian berjaya direkod. "+r.optString("purchase_no",r.optString("reference",""))));});}
+    private void savePurchase(){runIo(() -> {JSONObject b=new JSONObject();String supplier=etSupplier.getText().toString().trim();double amt=num(etReceiptAmount);if(amt<=0)throw new Exception("Jumlah pembelian mesti lebih daripada RM0.");b.put("purchase_date",emptyOr(etReceiptDate,LocalDate.now().toString()));b.put("supplier",supplier);b.put("description",supplier.isEmpty()?"Pembelian / perbelanjaan":"Pembelian dari "+supplier);b.put("amount",amt);b.put("category",etReceiptCategory.getText().toString().trim());b.put("reference",etReceiptRef.getText().toString().trim());b.put("payment_method","Tunai / Bank");JSONObject r=requestJson("POST",BASE+"/purchases",b,true);runOnUiThread(() -> tvReceiptResult.setText("Pembelian berjaya direkod. "+r.optString("reference","")));});}
 
     private void getDaily(){tvSummary.setText("Mengambil laporan...");runIo(() -> {JSONObject r=requestJson("GET",BASE+"/daily-report",null,true);runOnUiThread(() -> tvSummary.setText(prettyDaily(r)));});}
-    private void getOutstanding(){tvSummary.setText("Mengambil outstanding...");runIo(() -> {JSONObject r=requestJson("GET",BASE+"/outstanding",null,true);runOnUiThread(() -> tvSummary.setText("Outstanding: RM"+String.format(java.util.Locale.US,"%.2f",r.optDouble("total_outstanding",0))+"\nInvoice belum selesai: "+(r.optJSONArray("invoices")!=null?r.optJSONArray("invoices").length():0)));});}
+    private void getOutstanding(){tvSummary.setText("Mengambil outstanding...");runIo(() -> {JSONObject r=requestJson("GET",BASE+"/outstanding",null,true);runOnUiThread(() -> tvSummary.setText("Outstanding: RM"+fmt(r.optDouble("total_outstanding",0))+"\nInvoice belum selesai: "+r.optInt("invoice_count",0)));});}
 
-    private String prettyDaily(JSONObject r){return "Jualan: RM"+fmt(r.optDouble("sales_total",r.optDouble("manual_sales_total",0)))+"\nPembelian: RM"+fmt(r.optDouble("purchases_total",0))+"\nInvoice dikeluarkan: RM"+fmt(r.optDouble("invoices_issued_total",0))+"\nBayaran invoice: RM"+fmt(r.optDouble("invoice_payments_total",0));}
+    private String prettyDaily(JSONObject r){
+        JSONObject s=r.optJSONObject("manual_sales"),p=r.optJSONObject("purchases"),i=r.optJSONObject("invoices_issued"),pay=r.optJSONObject("invoice_payments");
+        return "Jualan: RM"+fmt(s==null?0:s.optDouble("amount",0))+"\nPembelian: RM"+fmt(p==null?0:p.optDouble("amount",0))+"\nInvoice dikeluarkan: RM"+fmt(i==null?0:i.optDouble("amount",0))+"\nBayaran invoice: RM"+fmt(pay==null?0:pay.optDouble("amount",0));
+    }
     private String fmt(double n){return String.format(java.util.Locale.US,"%.2f",n);}
     private double num(EditText e){try{return Double.parseDouble(e.getText().toString().trim());}catch(Exception x){return 0;}}
     private String emptyOr(EditText e,String d){String s=e.getText().toString().trim();return s.isEmpty()?d:s;}
@@ -194,27 +237,20 @@ public class MainActivity extends Activity {
     private void runIo(IOTask task){io.submit(() -> {try{task.run();}catch(Exception e){e.printStackTrace();runOnUiThread(() -> handleError(e));}});}
     private void handleError(Exception e){
         String m=e.getMessage()==null?"Ralat":e.getMessage();
-        boolean authExpired=(m.contains("401")||m.toLowerCase().contains("mobile login required"));
+        boolean authExpired=m.contains("401")||m.toLowerCase().contains("mobile login required")||m.toLowerCase().contains("revoked")||m.toLowerCase().contains("login again");
         if(authExpired && token!=null && !token.isEmpty()){
-            prefs.edit().remove("token").apply();
-            token="";
+            prefs.edit().remove("token").apply(); token="";
             toast("Sesi Hafiz tamat. Login semula.");
             showLogin();
-        }else{
-            if(m.contains("Incorrect Hafiz password")){
-                toast("Password Hafiz tidak betul. Gunakan nilai HAFIZ_OAUTH_PASSWORD yang sama seperti di Hostinger.");
-            }else if(m.contains("401")){
-                toast("Login gagal. Semak HAFIZ_OAUTH_PASSWORD.");
-            }else{
-                toast(m);
-            }
-        }
+        }else if(m.contains("Incorrect Hafiz password")) toast("Password Hafiz tidak betul. Semak HAFIZ_OAUTH_PASSWORD di Hostinger.");
+        else toast(m);
         setBusy(null);
     }
     private interface IOTask{void run() throws Exception;}
 
-    private JSONObject requestJson(String method,String url,JSONObject body,boolean auth) throws Exception {
-        HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();c.setRequestMethod(method);c.setConnectTimeout(20000);c.setReadTimeout(30000);c.setRequestProperty("Accept","application/json");if(auth&&!token.isEmpty())c.setRequestProperty("Authorization","Bearer "+token);
+    private JSONObject requestJson(String method,String url,JSONObject body,boolean auth) throws Exception {return requestJsonWithToken(method,url,body,auth?token:"");}
+    private JSONObject requestJsonWithToken(String method,String url,JSONObject body,String authToken) throws Exception {
+        HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();c.setRequestMethod(method);c.setConnectTimeout(20000);c.setReadTimeout(30000);c.setRequestProperty("Accept","application/json");if(authToken!=null&&!authToken.isEmpty())c.setRequestProperty("Authorization","Bearer "+authToken);
         if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json; charset=utf-8");try(OutputStream os=c.getOutputStream()){os.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
         int code=c.getResponseCode();InputStream is=code>=400?c.getErrorStream():c.getInputStream();String text=readAll(is);JSONObject r=text.trim().isEmpty()?new JSONObject():new JSONObject(text);if(code>=400)throw new Exception("HTTP "+code+": "+r.optString("detail","Request gagal"));return r;
     }

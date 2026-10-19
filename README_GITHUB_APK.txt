@@ -1,10 +1,13 @@
-HAFIZ MINI ANDROID V4 BM
-=========================
-- Standalone companion untuk Lovely Accounts.
-- Smart Blank Form: paste bahasa biasa -> Extract -> Preview/Edit -> Create Invoice/Quotation.
-- Customer existing dipadankan mengikut Phone > Email > Nama/Company.
-- Upload gambar/PDF resit -> OCR -> Preview/Edit -> Simpan Pembelian.
-- Laporan Hari Ini dan Outstanding Invoice terus dalam app.
-- Login sekali menggunakan HAFIZ_OAUTH_PASSWORD. App menerima token device 90 hari; API key/MySQL password tidak disimpan dalam app.
+HAFIZ MINI ANDROID V5 — VOICE ASSISTANT
+========================================
+- Voice dua hala sebenar dalam app menggunakan OpenAI Realtime melalui WebRTC.
+- Tidak menggunakan Google Voice popup.
+- Hafiz boleh bercakap semula, semak Lovely Accounts dan menggunakan tool accounting.
+- Multi-device: setiap phone dapat session sendiri; boleh guna serentak.
+- Devices Connected + revoke access.
+- Paparan kos: effective monthly spend, estimated live cost, actual OpenAI cost apabila OPENAI_ADMIN_KEY diset.
+- Cap aplikasi default RM30 sebulan (backend v1.8.7).
+- Smart Form, OCR receipt, report dan outstanding kekal.
 
-Memerlukan Lovely Accounts v1.8.6 atau lebih baru.
+Backend diperlukan: Lovely Accounts v1.8.7 atau lebih baru.
+Rahsia OPENAI_API_KEY tidak disimpan dalam APK.
