@@ -46,7 +46,7 @@ public class MainActivity extends Activity {
         setupDocType();
         setupActions();
         tvDeviceName.setText(getDeviceName());
-        if (token.isEmpty()) showLogin(); else checkStatus();
+        if (token.isEmpty()) showLogin(); else refreshUsage();
     }
 
     @Override protected void onResume() {
@@ -117,7 +117,7 @@ public class MainActivity extends Activity {
             JSONObject r=requestJson("POST", BASE+"/login", body, false);
             String t=r.optString("token",""); if(t.isEmpty()) throw new Exception(r.optString("detail","Login gagal"));
             token=t; prefs.edit().putString("token",t).apply();
-            runOnUiThread(() -> {dlg.dismiss();toast("Phone ini sudah disambungkan dengan Hafiz.");checkStatus();refreshUsage();});
+            runOnUiThread(() -> {dlg.dismiss();toast("Phone ini sudah disambungkan dengan Hafiz.");refreshUsage();});
         });
     }
 
@@ -237,12 +237,14 @@ public class MainActivity extends Activity {
     private void runIo(IOTask task){io.submit(() -> {try{task.run();}catch(Exception e){e.printStackTrace();runOnUiThread(() -> handleError(e));}});}
     private void handleError(Exception e){
         String m=e.getMessage()==null?"Ralat":e.getMessage();
-        boolean authExpired=m.contains("401")||m.toLowerCase().contains("mobile login required")||m.toLowerCase().contains("revoked")||m.toLowerCase().contains("login again");
+        String ml=m.toLowerCase();
+        boolean authExpired=ml.contains("mobile login required")||ml.contains("hafiz_mobile_auth_required")||ml.contains("hafiz_mobile_relogin_required")||ml.contains("hafiz_mobile_session_revoked")||ml.contains("device session has ended")||ml.contains("was revoked")||ml.contains("please login again on this device");
         if(authExpired && token!=null && !token.isEmpty()){
             prefs.edit().remove("token").apply(); token="";
             toast("Sesi Hafiz tamat. Login semula.");
             showLogin();
         }else if(m.contains("Incorrect Hafiz password")) toast("Password Hafiz tidak betul. Semak HAFIZ_OAUTH_PASSWORD di Hostinger.");
+        else if(m.contains("HTTP 401")) toast("Phone sudah login, tetapi backend accounting menolak salah satu request. Session phone dikekalkan.");
         else toast(m);
         setBusy(null);
     }
