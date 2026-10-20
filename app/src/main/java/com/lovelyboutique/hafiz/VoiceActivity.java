@@ -13,6 +13,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.view.View;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
@@ -50,6 +51,7 @@ public class VoiceActivity extends Activity {
 
     private void initWeb(){
         web=new WebView(this);
+        web.setLayerType(View.LAYER_TYPE_HARDWARE,null);
         setContentView(web);
         WebSettings s=web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -115,6 +117,9 @@ public class VoiceActivity extends Activity {
 
     public class Bridge {
         @JavascriptInterface public String getToken(){return token;}
+        @JavascriptInterface public boolean hasMicPermission(){
+            return android.os.Build.VERSION.SDK_INT<23 || checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED;
+        }
         @JavascriptInterface public void closeVoice(){runOnUiThread(() -> finish());}
     }
 

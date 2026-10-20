@@ -15,9 +15,9 @@
 </head>
 <body>
 <div class="wrap">
- <div class="top"><div class="avatar">H</div><div><div class="title">Hafiz</div><div class="sub">Account Manager • Lovely Boutique • V5.3</div></div><div class="live" id="liveBadge">MENYAMBUNG</div></div>
+ <div class="top"><div class="avatar">H</div><div><div class="title">Hafiz</div><div class="sub">Account Manager • Lovely Boutique • V5.4</div></div><div class="live" id="liveBadge">MENYAMBUNG</div></div>
  <div class="cost"><div class="costrow"><div><div class="costsmall">Penggunaan OpenAI bulan ini</div><div class="costbig" id="costMain">RM0.00 / RM30.00</div></div><div style="text-align:right"><div class="costsmall">Baki</div><div class="costbig" id="costRemain">RM30.00</div></div></div><div class="bar"><i id="costBar"></i></div><div class="meta"><span id="actualCost">Actual OpenAI: —</span><span id="estimatedCost">Estimated Live: —</span></div></div>
- <div class="voice"><div class="orb" id="orb"></div><div class="status" id="status">Menyambung dengan Hafiz…</div><div class="hint" id="hint">Voice screen ini berada dalam app dan tidak menggunakan login web Lovely Accounts.</div><div class="controls"><button class="btn secondary" id="retry" style="display:none">Sambung Semula</button><button class="btn danger" id="end">Tamat</button></div><div class="error" id="err"></div></div>
+ <div class="voice"><div class="orb" id="orb"></div><div class="status" id="status">Sedia untuk bercakap</div><div class="hint" id="hint">Tekan Mula Cakap supaya Android membuka microphone daripada sentuhan Syam sendiri.</div><div class="controls"><button class="btn secondary" id="start">🎙 Mula Cakap</button><button class="btn secondary" id="retry" style="display:none">Sambung Semula</button><button class="btn danger" id="end">Tamat</button></div><div class="error" id="err"></div></div>
  <div class="chat" id="chat"></div>
  <div class="foot">Voice menggunakan mobile device session Hafiz, bukan username/password Lovely Accounts.</div>
 </div>
@@ -30,8 +30,35 @@ const $=id=>document.getElementById(id);
 const token=()=>window.HafizApp&&HafizApp.getToken?HafizApp.getToken():'';
 function auth(){return {'Authorization':'Bearer '+token(),'Content-Type':'application/json'}}
 function state(kind,text,hint){$('orb').className='orb '+(kind||'');$('status').textContent=text||'';if(hint!==undefined)$('hint').textContent=hint;$('liveBadge').textContent=kind==='speaking'?'MENJAWAB':kind==='thinking'?'BERFIKIR':kind==='listening'?'LIVE':'MENYAMBUNG'}
-function showError(msg){$('err').style.display='block';$('err').textContent=msg;$('retry').style.display='block';state('', 'Sambungan terhenti','Tekan Sambung Semula selepas semak backend Voice/OpenAI.')}
-function clearError(){$('err').style.display='none';$('retry').style.display='none'}
+function showError(msg,hint){
+ $('err').style.display='block';$('err').textContent=msg;$('retry').style.display='block';$('start').style.display='none';
+ state('', 'Sambungan terhenti',hint||'Tekan Sambung Semula selepas semak microphone atau sambungan Voice.');
+}
+function clearError(){$('err').style.display='none';$('retry').style.display='none';$('start').style.display='none'}
+function cleanupMedia(){
+ try{if(localStream)localStream.getTracks().forEach(t=>t.stop())}catch{}
+ localStream=null;
+}
+async function openMicrophone(){
+ if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)) throw new Error('WebView Android ini tidak menyediakan microphone API.');
+ if(window.HafizApp&&HafizApp.hasMicPermission&&!HafizApp.hasMicPermission()) throw new Error('Permission microphone untuk app Hafiz belum dibenarkan.');
+ cleanupMedia();
+ try{
+   return await navigator.mediaDevices.getUserMedia({audio:true});
+ }catch(first){
+   const msg=String(first&&first.message||first||'');
+   const name=String(first&&first.name||'');
+   if(name==='NotReadableError'||/could not start audio source/i.test(msg)){
+     await new Promise(r=>setTimeout(r,900));
+     cleanupMedia();
+     try{return await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
+     catch(second){
+       const e=new Error('Android tidak dapat membuka microphone (Could not start audio source). Tutup Camera/WhatsApp/Voice Recorder/Google Assistant yang mungkin sedang guna mic, pastikan Privacy > Microphone ON, kemudian cuba semula.');
+       e.code='MIC_BUSY';throw e;
+     }
+   }
+   throw first;
+ }}
 function bubble(who,text){if(!text||!text.trim())return;const d=document.createElement('div');d.className='bubble '+(who==='Syam'?'user':'assistant');d.innerHTML='<div class="label">'+who+'</div><div></div>';d.lastChild.textContent=text.trim();$('chat').prepend(d)}
 async function api(path,opt={}){
  const r=await fetch(API+path,{...opt,credentials:'omit',redirect:'follow',headers:{...auth(),...(opt.headers||{})}});
@@ -61,7 +88,7 @@ async function startVoice(){
   pc=new RTCPeerConnection();
   pc.onconnectionstatechange=()=>{if(['failed','disconnected'].includes(pc.connectionState)&&!ended)showError('Sambungan voice terputus.')};
   pc.ontrack=e=>{$('remoteAudio').srcObject=e.streams[0]};
-  localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+  localStream=await openMicrophone();
   for(const tr of localStream.getTracks())pc.addTrack(tr,localStream);
   dc=pc.createDataChannel('oai-events');
   dc.onopen=()=>state('listening','Saya dengar, Syam…','Terus bercakap macam bos bercakap dengan pekerja. Hafiz akan jawab dengan suara.');
@@ -71,15 +98,22 @@ async function startVoice(){
   const ans=await fetch('https://api.openai.com/v1/realtime/calls',{method:'POST',body:offer.sdp,headers:{Authorization:'Bearer '+s.client_secret,'Content-Type':'application/sdp'}});
   if(!ans.ok)throw new Error('OpenAI Realtime gagal disambungkan ('+ans.status+').');
   await pc.setRemoteDescription({type:'answer',sdp:await ans.text()});
- }catch(e){showError(e.message)}
+ }catch(e){
+   if(pc){try{pc.close()}catch{}pc=null}
+   cleanupMedia();
+   const msg=e&&e.message?e.message:String(e);
+   const mic=/microphone|audio source|NotReadableError/i.test(msg);
+   showError(msg,mic?'Pastikan microphone Android tidak sedang digunakan app lain. Tekan Sambung Semula selepas tutup app yang guna mic.':undefined);
+ }
  finally{starting=false}
 }
-async function stopVoice(closeScreen=true){ended=true;try{if(sessionId)await api('/voice/end',{method:'POST',body:JSON.stringify({session_id:sessionId})})}catch{}try{if(localStream)localStream.getTracks().forEach(t=>t.stop())}catch{}try{if(dc)dc.close()}catch{}try{if(pc)pc.close()}catch{}pc=null;dc=null;localStream=null;sessionId='';state('', 'Sesi tamat','Tekan Sambung Semula jika mahu bercakap lagi.');$('retry').style.display='block';$('liveBadge').textContent='TAMAT';if(closeScreen&&window.HafizApp&&HafizApp.closeVoice)setTimeout(()=>HafizApp.closeVoice(),250)}
-$('retry').onclick=()=>{pc=null;startVoice()};
+async function stopVoice(closeScreen=true){ended=true;try{if(sessionId)await api('/voice/end',{method:'POST',body:JSON.stringify({session_id:sessionId})})}catch{}cleanupMedia();try{if(dc)dc.close()}catch{}try{if(pc)pc.close()}catch{}pc=null;dc=null;sessionId='';state('', 'Sesi tamat','Tekan Mula Cakap jika mahu buka sesi baru.');$('retry').style.display='none';$('start').style.display='inline-block';$('liveBadge').textContent='TAMAT';if(closeScreen&&window.HafizApp&&HafizApp.closeVoice)setTimeout(()=>HafizApp.closeVoice(),250)}
+$('start').onclick=()=>startVoice();
+$('retry').onclick=()=>{pc=null;dc=null;cleanupMedia();startVoice()};
 $('end').onclick=()=>stopVoice(true);
-window.addEventListener('beforeunload',()=>{try{if(localStream)localStream.getTracks().forEach(t=>t.stop());if(pc)pc.close()}catch{}});
+window.addEventListener('beforeunload',()=>{try{cleanupMedia();if(pc)pc.close()}catch{}});
 refreshUsage();
-setTimeout(startVoice,350);
+$('liveBadge').textContent='SEDIA';
 </script>
 </body>
 </html>

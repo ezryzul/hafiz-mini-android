@@ -17,6 +17,6 @@ jobs:
         run: ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: Hafiz-Mini-Android-V5.3-BM
+          name: Hafiz-Mini-Android-V5.4-BM
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
