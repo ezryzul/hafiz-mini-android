@@ -344,7 +344,10 @@ public class VoiceActivity extends Activity {
                 JSONObject args;try{args=new JSONObject(item.optString("arguments","{}"));}catch(Exception e){args=new JSONObject();}
                 JSONObject b=new JSONObject();b.put("name",name);b.put("arguments",args);
                 JSONObject r=apiJson("POST","/voice/tool",b);output=(r.optBoolean("ok")?r.opt("result"):new JSONObject().put("error",r.optString("detail","Tool gagal"))).toString();
-            }catch(Exception e){output="{\"error\":\""+escape(e.getMessage())+"\"}";}
+            }catch(Exception e){
+                try{output=new JSONObject().put("error",String.valueOf(e.getMessage())).toString();}
+                catch(Exception ignored){output="{\"error\":\"Tool failed\"}";}
+            }
             try{
                 JSONObject ev=new JSONObject();ev.put("type","conversation.item.create");
                 JSONObject it=new JSONObject();it.put("type","function_call_output");it.put("call_id",callId);it.put("output",output);ev.put("item",it);
@@ -352,8 +355,6 @@ public class VoiceActivity extends Activity {
             }catch(Exception ignored){}
         });
     }
-
-    private String escape(String s){return String.valueOf(s).replace("\\","\\\\").replace(""","\\"");}
     private void sendEvent(JSONObject j){
         if(dataChannel==null||dataChannel.state()!=DataChannel.State.OPEN)return;
         ByteBuffer bb=ByteBuffer.wrap(j.toString().getBytes(StandardCharsets.UTF_8));
