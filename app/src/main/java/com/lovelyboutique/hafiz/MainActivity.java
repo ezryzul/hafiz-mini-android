@@ -9,6 +9,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
+import android.content.Context;
 import android.widget.*;
 
 import org.json.JSONArray;
@@ -30,6 +32,8 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private String token = "";
     private JSONObject lastParsed;
+    private AlertDialog loginDialog;
+    private boolean loginInFlight=false;
 
     private Spinner spDocType;
     private EditText etSmartText, etCustomerName, etCustomerPhone, etCustomerEmail, etCustomerAddress, etItems, etDiscount, etDelivery;
@@ -98,27 +102,69 @@ public class MainActivity extends Activity {
     }
 
     private void showLogin() {
-        final EditText pass=new EditText(this); pass.setHint("HAFIZ_OAUTH_PASSWORD"); pass.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD); pass.setPadding(30,20,30,20);
-        AlertDialog dlg=new AlertDialog.Builder(this).setTitle("Sambung Hafiz").setMessage("Masukkan password Hafiz sekali untuk sambungkan phone ini dengan Lovely Accounts.").setView(pass).setCancelable(false)
-                .setPositiveButton("Sambung", null).setNegativeButton("Tutup",(d,w)->finish()).create();
-        dlg.setOnShowListener(x -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> login(pass.getText().toString(), dlg)));
+        if(loginDialog!=null && loginDialog.isShowing()) return;
+        final EditText pass=new EditText(this);
+        pass.setHint("HAFIZ_OAUTH_PASSWORD");
+        pass.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        pass.setPadding(30,20,30,20);
+        AlertDialog dlg=new AlertDialog.Builder(this)
+                .setTitle("Sambung Hafiz")
+                .setMessage("Masukkan password Hafiz sekali untuk sambungkan phone ini dengan Lovely Accounts.")
+                .setView(pass)
+                .setCancelable(false)
+                .setPositiveButton("Sambung", null)
+                .setNegativeButton("Tutup",(d,w)->finish())
+                .create();
+        loginDialog=dlg;
+        dlg.setOnDismissListener(d->{loginInFlight=false;loginDialog=null;});
+        dlg.setOnShowListener(x -> dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if(loginInFlight) return;
+            login(pass.getText().toString(), dlg);
+        }));
         dlg.show();
     }
 
     private void login(String password, AlertDialog dlg) {
         if(password.trim().isEmpty()){toast("Masukkan password Hafiz.");return;}
-        runIo(() -> {
-            JSONObject body=new JSONObject();
-            body.put("password",password);
-            body.put("device_id",getHafizDeviceId());
-            body.put("device_name",getDeviceName());
-            body.put("platform","android");
-            body.put("app_version","5.0.0");
-            JSONObject r=requestJson("POST", BASE+"/login", body, false);
-            String t=r.optString("token",""); if(t.isEmpty()) throw new Exception(r.optString("detail","Login gagal"));
-            token=t; prefs.edit().putString("token",t).apply();
-            runOnUiThread(() -> {dlg.dismiss();toast("Phone ini sudah disambungkan dengan Hafiz.");refreshUsage();});
+        loginInFlight=true;
+        Button connect=dlg.getButton(AlertDialog.BUTTON_POSITIVE);
+        if(connect!=null){connect.setEnabled(false);connect.setText("Menyambung...");}
+        io.submit(() -> {
+            try{
+                JSONObject body=new JSONObject();
+                body.put("password",password);
+                body.put("device_id",getHafizDeviceId());
+                body.put("device_name",getDeviceName());
+                body.put("platform","android");
+                body.put("app_version","5.2.0");
+                JSONObject r=requestJson("POST", BASE+"/login", body, false);
+                String t=r.optString("token","");
+                if(t.isEmpty()) throw new Exception(r.optString("detail","Login gagal"));
+                token=t;
+                prefs.edit().putString("token",t).commit();
+                runOnUiThread(() -> {
+                    hideKeyboard(pass);
+                    pass.setText("");
+                    if(dlg.isShowing()) dlg.dismiss();
+                    toast("Phone ini sudah disambungkan dengan Hafiz.");
+                    tvVoiceActual.setText("Connected • Hafiz V5.2");
+                    new android.os.Handler(getMainLooper()).postDelayed(this::refreshUsage,700);
+                });
+            }catch(Exception e){
+                runOnUiThread(() -> {
+                    loginInFlight=false;
+                    if(connect!=null){connect.setEnabled(true);connect.setText("Sambung");}
+                    handleError(e);
+                });
+            }
         });
+    }
+
+    private void hideKeyboard(View v){
+        try{
+            InputMethodManager imm=(InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
+            if(imm!=null) imm.hideSoftInputFromWindow(v.getWindowToken(),0);
+        }catch(Exception ignored){}
     }
 
     private void logout(){
@@ -241,8 +287,8 @@ public class MainActivity extends Activity {
         boolean authExpired=ml.contains("mobile login required")||ml.contains("hafiz_mobile_auth_required")||ml.contains("hafiz_mobile_relogin_required")||ml.contains("hafiz_mobile_session_revoked")||ml.contains("device session has ended")||ml.contains("was revoked")||ml.contains("please login again on this device");
         if(authExpired && token!=null && !token.isEmpty()){
             prefs.edit().remove("token").apply(); token="";
-            toast("Sesi Hafiz tamat. Login semula.");
-            showLogin();
+            toast("Sesi phone tidak sah. Tekan Log Keluar untuk sambung semula — app tidak akan buka password berulang.");
+            tvVoiceActual.setText("Perlu sambung semula");
         }else if(m.contains("Incorrect Hafiz password")) toast("Password Hafiz tidak betul. Semak HAFIZ_OAUTH_PASSWORD di Hostinger.");
         else if(m.contains("HTTP 401")) toast("Phone sudah login, tetapi backend accounting menolak salah satu request. Session phone dikekalkan.");
         else toast(m);
