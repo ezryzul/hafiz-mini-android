@@ -143,8 +143,8 @@ public class MainActivity extends Activity {
                 token=t;
                 prefs.edit().putString("token",t).commit();
                 runOnUiThread(() -> {
-                    hideKeyboard(pass);
-                    pass.setText("");
+                    View focus=dlg.getCurrentFocus();
+                    hideKeyboard(focus!=null?focus:getWindow().getDecorView());
                     if(dlg.isShowing()) dlg.dismiss();
                     toast("Phone ini sudah disambungkan dengan Hafiz.");
                     tvVoiceActual.setText("Connected • Hafiz V5.2");
