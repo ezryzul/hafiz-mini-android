@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Hafiz Voice</title>
+<style>
+:root{--bg:#fff8fb;--card:#fff;--ink:#342331;--muted:#806a78;--brand:#8b2d61;--brand2:#c46092;--ok:#26734d;--danger:#aa2f42;--line:#eddde6}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(180deg,#fff4fa 0,#fff 55%,#fff8fb 100%);color:var(--ink);min-height:100vh}
+.wrap{max-width:720px;margin:auto;padding:18px 16px 36px}.top{display:flex;align-items:center;gap:12px}.avatar{width:52px;height:52px;border-radius:18px;background:#f9dbe9;display:grid;place-items:center;font-size:25px;font-weight:800;color:var(--brand)}.title{font-size:23px;font-weight:800}.sub{font-size:13px;color:var(--muted);margin-top:4px}.live{margin-left:auto;font-size:12px;font-weight:700;background:#ebf8f0;color:var(--ok);padding:7px 10px;border-radius:999px}
+.cost,.voice{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:15px;box-shadow:0 8px 30px #8b2d610d}.costrow{display:flex;justify-content:space-between;gap:12px}.costbig{font-weight:800;font-size:19px}.costsmall{color:var(--muted);font-size:12px}.bar{height:8px;background:#f3e8ee;border-radius:999px;overflow:hidden;margin-top:10px}.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--brand2),var(--brand));border-radius:999px}.meta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:8px;color:var(--muted);font-size:11px}
+.voice{text-align:center;border-radius:28px;padding:26px 18px 20px}.orb{width:150px;height:150px;margin:4px auto 16px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#f8cfe3 48%,#d979a9);box-shadow:0 0 0 13px #fbe9f2,0 15px 45px #b9477c30;position:relative}.orb:before{content:"";width:30px;height:48px;border-radius:20px;background:var(--brand);position:absolute;top:27px;left:60px}.orb:after{content:"";width:46px;height:64px;border:7px solid var(--brand);border-top:0;border-radius:0 0 28px 28px;position:absolute;top:35px;left:45px}.orb.listening{animation:pulse 1.45s infinite}.orb.thinking{animation:think 1s infinite}.orb.speaking{animation:speak .65s infinite alternate}@keyframes pulse{50%{box-shadow:0 0 0 23px #f7d7e7,0 15px 55px #b9477c40}}@keyframes think{50%{transform:scale(.96)}}@keyframes speak{to{transform:scale(1.035);box-shadow:0 0 0 20px #f5d1e3,0 15px 60px #b9477c55}}
+.status{font-size:21px;font-weight:800}.hint{margin-top:7px;color:var(--muted);font-size:13px;min-height:38px}.controls{display:flex;gap:10px;margin-top:14px}.btn{border:0;border-radius:16px;padding:14px 16px;font-weight:750;font-size:15px;flex:1}.secondary{background:#f5e8ef;color:var(--brand)}.danger{background:#fff0f2;color:var(--danger)}.error{background:#fff1f3;color:#9d3042;border:1px solid #ffd1d8;border-radius:14px;padding:10px 12px;margin-top:12px;font-size:13px;display:none}.chat{margin-top:18px}.bubble{max-width:88%;padding:11px 13px;border-radius:17px;margin:9px 0;font-size:14px;line-height:1.45}.user{margin-left:auto;background:#f4dce8}.assistant{background:#fff;border:1px solid var(--line)}.label{font-size:10px;font-weight:800;opacity:.6;margin-bottom:4px;text-transform:uppercase}.foot{text-align:center;color:#9a8592;font-size:11px;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <div class="top"><div class="avatar">H</div><div><div class="title">Hafiz</div><div class="sub">Account Manager • Lovely Boutique • V5.3</div></div><div class="live" id="liveBadge">MENYAMBUNG</div></div>
+ <div class="cost"><div class="costrow"><div><div class="costsmall">Penggunaan OpenAI bulan ini</div><div class="costbig" id="costMain">RM0.00 / RM30.00</div></div><div style="text-align:right"><div class="costsmall">Baki</div><div class="costbig" id="costRemain">RM30.00</div></div></div><div class="bar"><i id="costBar"></i></div><div class="meta"><span id="actualCost">Actual OpenAI: —</span><span id="estimatedCost">Estimated Live: —</span></div></div>
+ <div class="voice"><div class="orb" id="orb"></div><div class="status" id="status">Menyambung dengan Hafiz…</div><div class="hint" id="hint">Voice screen ini berada dalam app dan tidak menggunakan login web Lovely Accounts.</div><div class="controls"><button class="btn secondary" id="retry" style="display:none">Sambung Semula</button><button class="btn danger" id="end">Tamat</button></div><div class="error" id="err"></div></div>
+ <div class="chat" id="chat"></div>
+ <div class="foot">Voice menggunakan mobile device session Hafiz, bukan username/password Lovely Accounts.</div>
+</div>
+<audio id="remoteAudio" autoplay></audio>
+<script>
+const API='https://accounting.lovelyboutique.com.my/api/hafiz-mobile/v1';
+let pc=null,dc=null,localStream=null,sessionId='',model='',ended=false,starting=false;
+const handledCalls=new Set();
+const $=id=>document.getElementById(id);
+const token=()=>window.HafizApp&&HafizApp.getToken?HafizApp.getToken():'';
+function auth(){return {'Authorization':'Bearer '+token(),'Content-Type':'application/json'}}
+function state(kind,text,hint){$('orb').className='orb '+(kind||'');$('status').textContent=text||'';if(hint!==undefined)$('hint').textContent=hint;$('liveBadge').textContent=kind==='speaking'?'MENJAWAB':kind==='thinking'?'BERFIKIR':kind==='listening'?'LIVE':'MENYAMBUNG'}
+function showError(msg){$('err').style.display='block';$('err').textContent=msg;$('retry').style.display='block';state('', 'Sambungan terhenti','Tekan Sambung Semula selepas semak backend Voice/OpenAI.')}
+function clearError(){$('err').style.display='none';$('retry').style.display='none'}
+function bubble(who,text){if(!text||!text.trim())return;const d=document.createElement('div');d.className='bubble '+(who==='Syam'?'user':'assistant');d.innerHTML='<div class="label">'+who+'</div><div></div>';d.lastChild.textContent=text.trim();$('chat').prepend(d)}
+async function api(path,opt={}){
+ const r=await fetch(API+path,{...opt,credentials:'omit',redirect:'follow',headers:{...auth(),...(opt.headers||{})}});
+ const t=await r.text();
+ const ct=(r.headers.get('content-type')||'').toLowerCase();
+ if(r.redirected&&/\/login(?:\?|$)/.test(r.url)) throw new Error('Backend Voice dihantar ke login web. Pastikan Lovely Accounts v1.8.8 atau lebih baru sudah live.');
+ if(!ct.includes('application/json')) throw new Error('Backend Voice tidak pulangkan mobile API. Semak versi backend Lovely Accounts.');
+ let j={};try{j=JSON.parse(t)}catch{throw new Error('Response mobile API tidak sah.')}
+ if(!r.ok) throw new Error(j.detail||('HTTP '+r.status));
+ return j;
+}
+function money(n){return 'RM'+Number(n||0).toFixed(2)}
+function renderUsage(u){if(!u)return;const effective=Number(u.effective_spend_myr||0),limit=Number(u.monthly_limit_myr||30);$('costMain').textContent=money(effective)+' / '+money(limit);$('costRemain').textContent=money(u.remaining_myr);$('costBar').style.width=Math.min(100,Number(u.percent_used||0))+'%';$('estimatedCost').textContent='Estimated Live: '+money(u.estimated_live_myr);$('actualCost').textContent=u.actual_cost_available?'Actual OpenAI: '+money(u.actual_openai_myr_estimate):'Actual OpenAI: belum disambung'}
+async function refreshUsage(){try{renderUsage(await api('/usage',{method:'GET'}))}catch(e){console.log(e.message)}}
+async function sendUsage(resp){if(!resp||!resp.id||!resp.usage)return;try{const r=await api('/voice/usage',{method:'POST',body:JSON.stringify({session_id:sessionId,response_id:resp.id,model,usage:resp.usage})});renderUsage(r.usage);if(r.stop_voice){bubble('Hafiz','Cap Voice bulan ini hampir dicapai. Sesi dihentikan untuk kawal kos.');await stopVoice(false);showError('Cap penggunaan Hafiz Voice hampir dicapai.')}}catch(e){console.log(e.message)}}
+async function handleFunction(item){if(!item||!item.call_id||handledCalls.has(item.call_id))return;handledCalls.add(item.call_id);state('thinking','Hafiz sedang uruskan…','Sedang semak Lovely Accounts.');let args={};try{args=JSON.parse(item.arguments||'{}')}catch{}let output;try{const r=await api('/voice/tool',{method:'POST',body:JSON.stringify({name:item.name,arguments:args})});output=JSON.stringify(r.ok?r.result:{error:r.detail||'Tool gagal'});}catch(e){output=JSON.stringify({error:e.message})}if(dc&&dc.readyState==='open'){dc.send(JSON.stringify({type:'conversation.item.create',item:{type:'function_call_output',call_id:item.call_id,output}}));dc.send(JSON.stringify({type:'response.create'}));}}
+async function handleEvent(evt){if(!evt||!evt.type)return;if(evt.type==='input_audio_buffer.speech_started'){state('listening','Saya dengar, Syam…','Teruskan bercakap.')}else if(evt.type==='input_audio_buffer.speech_stopped'){state('thinking','Hafiz sedang fikir…','Sedang memahami arahan.')}else if(evt.type==='conversation.item.input_audio_transcription.completed'){bubble('Syam',evt.transcript)}else if(evt.type==='response.output_audio.delta'){state('speaking','Hafiz sedang jawab…','Syam boleh mencelah bila-bila masa.')}else if(evt.type==='response.output_audio_transcript.done'){bubble('Hafiz',evt.transcript)}else if(evt.type==='response.done'){await sendUsage(evt.response);const calls=(evt.response&&evt.response.output||[]).filter(x=>x.type==='function_call');if(calls.length){for(const c of calls)await handleFunction(c)}else if(!ended){state('listening','Saya dengar, Syam…','Cakap arahan seterusnya bila-bila masa.')}}else if(evt.type==='error'){showError(evt.error&&evt.error.message?evt.error.message:'Ralat Realtime')}}
+async function startVoice(){
+ if(starting||pc)return;
+ starting=true;ended=false;clearError();
+ try{
+  if(!token())throw new Error('Mobile session Hafiz tidak dijumpai. Tutup Voice dan login app semula.');
+  state('', 'Menyambung dengan Hafiz…','Menyediakan voice session menggunakan token phone.');
+  const s=await api('/voice/session',{method:'POST',body:'{}'});
+  renderUsage(s.usage);sessionId=s.session_id;model=s.model;
+  if(!s.client_secret)throw new Error('OpenAI Voice belum dikonfigurasi pada backend.');
+  pc=new RTCPeerConnection();
+  pc.onconnectionstatechange=()=>{if(['failed','disconnected'].includes(pc.connectionState)&&!ended)showError('Sambungan voice terputus.')};
+  pc.ontrack=e=>{$('remoteAudio').srcObject=e.streams[0]};
+  localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+  for(const tr of localStream.getTracks())pc.addTrack(tr,localStream);
+  dc=pc.createDataChannel('oai-events');
+  dc.onopen=()=>state('listening','Saya dengar, Syam…','Terus bercakap macam bos bercakap dengan pekerja. Hafiz akan jawab dengan suara.');
+  dc.onmessage=e=>{try{handleEvent(JSON.parse(e.data))}catch(err){console.log(err)}};
+  dc.onerror=()=>showError('Data channel voice mengalami ralat.');
+  const offer=await pc.createOffer();await pc.setLocalDescription(offer);
+  const ans=await fetch('https://api.openai.com/v1/realtime/calls',{method:'POST',body:offer.sdp,headers:{Authorization:'Bearer '+s.client_secret,'Content-Type':'application/sdp'}});
+  if(!ans.ok)throw new Error('OpenAI Realtime gagal disambungkan ('+ans.status+').');
+  await pc.setRemoteDescription({type:'answer',sdp:await ans.text()});
+ }catch(e){showError(e.message)}
+ finally{starting=false}
+}
+async function stopVoice(closeScreen=true){ended=true;try{if(sessionId)await api('/voice/end',{method:'POST',body:JSON.stringify({session_id:sessionId})})}catch{}try{if(localStream)localStream.getTracks().forEach(t=>t.stop())}catch{}try{if(dc)dc.close()}catch{}try{if(pc)pc.close()}catch{}pc=null;dc=null;localStream=null;sessionId='';state('', 'Sesi tamat','Tekan Sambung Semula jika mahu bercakap lagi.');$('retry').style.display='block';$('liveBadge').textContent='TAMAT';if(closeScreen&&window.HafizApp&&HafizApp.closeVoice)setTimeout(()=>HafizApp.closeVoice(),250)}
+$('retry').onclick=()=>{pc=null;startVoice()};
+$('end').onclick=()=>stopVoice(true);
+window.addEventListener('beforeunload',()=>{try{if(localStream)localStream.getTracks().forEach(t=>t.stop());if(pc)pc.close()}catch{}});
+refreshUsage();
+setTimeout(startVoice,350);
+</script>
+</body>
+</html>
