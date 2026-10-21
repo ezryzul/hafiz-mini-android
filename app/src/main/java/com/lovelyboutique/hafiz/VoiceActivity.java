@@ -6,54 +6,58 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.media.AudioManager;
+import android.media.*;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.NoiseSuppressor;
 import android.os.Bundle;
-import android.text.method.ScrollingMovementMethod;
+import android.util.Base64;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.*;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.webrtc.*;
-import org.webrtc.audio.JavaAudioDeviceModule;
 
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import okhttp3.*;
 
 public class VoiceActivity extends Activity {
     private static final int REQ_MIC=501;
     private static final String API="https://accounting.lovelyboutique.com.my/api/hafiz-mobile/v1";
-    private static final String OPENAI_CALLS="https://api.openai.com/v1/realtime/calls";
 
     private final ExecutorService io=Executors.newSingleThreadExecutor();
+    private final ExecutorService captureExec=Executors.newSingleThreadExecutor();
+    private final ExecutorService playbackExec=Executors.newSingleThreadExecutor();
+
     private SharedPreferences prefs;
     private String mobileToken="";
     private String sessionId="";
     private String model="";
-    private boolean starting=false, ended=false;
+    private String clientSecret="";
+    private volatile boolean starting=false;
+    private volatile boolean ended=false;
 
-    private LinearLayout root;
     private TextView tvState,tvHint,tvError,tvCost,tvRemain,tvMeta,tvTranscript;
     private Button btnStart,btnStop;
     private ProgressBar progress;
 
-    private PeerConnectionFactory factory;
-    private PeerConnection peer;
-    private DataChannel dataChannel;
-    private AudioSource audioSource;
-    private AudioTrack localAudioTrack;
-    private JavaAudioDeviceModule audioDeviceModule;
+    private OkHttpClient wsClient;
+    private WebSocket ws;
+    private final AtomicBoolean recording=new AtomicBoolean(false);
+    private AudioRecord audioRecord;
+    private int captureRate=24000;
+    private AudioTrack audioTrack;
+    private AcousticEchoCanceler aec;
+    private NoiseSuppressor ns;
     private AudioManager audioManager;
-    private int oldAudioMode=AudioManager.MODE_NORMAL;
+    private int oldMode=AudioManager.MODE_NORMAL;
     private boolean oldSpeaker=false;
 
     @Override protected void onCreate(Bundle b){
@@ -73,37 +77,88 @@ public class VoiceActivity extends Activity {
 
     private void buildUi(){
         ScrollView scroll=new ScrollView(this);
-        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(18),dp(18),dp(18),dp(28));root.setBackgroundColor(Color.rgb(255,248,251));
+        LinearLayout root=new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18),dp(18),dp(18),dp(28));
+        root.setBackgroundColor(Color.rgb(255,248,251));
         scroll.addView(root,new ScrollView.LayoutParams(-1,-2));
 
-        TextView title=text("Hafiz",30,true,Color.rgb(67,35,58));root.addView(title);
-        root.addView(text("Account Manager • Native Voice V5.5",14,false,Color.rgb(128,106,120)));
+        root.addView(text("Hafiz",30,true,Color.rgb(67,35,58)));
+        root.addView(text("Account Manager • Native Audio V5.6",14,false,Color.rgb(128,106,120)));
 
-        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(16),dp(14),dp(16),dp(14));card.setBackgroundColor(Color.WHITE);
-        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,dp(18),0,0);root.addView(card,cp);
-        card.addView(text("HAFIZ VOICE USAGE",12,true,Color.rgb(139,45,97)));
-        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);card.addView(row);
-        tvCost=text("RM0.00 / RM30.00",23,true,Color.rgb(52,35,49));row.addView(tvCost,new LinearLayout.LayoutParams(0,-2,1));
-        tvRemain=text("Baki RM30.00",14,true,Color.rgb(38,115,77));row.addView(tvRemain);
-        tvMeta=text("Native Android mic • bukan WebView",11,false,Color.rgb(128,106,120));card.addView(tvMeta);
+        LinearLayout usage=new LinearLayout(this);
+        usage.setOrientation(LinearLayout.VERTICAL);
+        usage.setPadding(dp(16),dp(14),dp(16),dp(14));
+        usage.setBackgroundColor(Color.WHITE);
+        LinearLayout.LayoutParams up=new LinearLayout.LayoutParams(-1,-2);
+        up.setMargins(0,dp(18),0,0);
+        root.addView(usage,up);
+        usage.addView(text("HAFIZ VOICE USAGE",12,true,Color.rgb(139,45,97)));
 
-        LinearLayout voiceCard=new LinearLayout(this);voiceCard.setOrientation(LinearLayout.VERTICAL);voiceCard.setGravity(Gravity.CENTER_HORIZONTAL);voiceCard.setPadding(dp(18),dp(30),dp(18),dp(24));voiceCard.setBackgroundColor(Color.WHITE);
-        LinearLayout.LayoutParams vp=new LinearLayout.LayoutParams(-1,-2);vp.setMargins(0,dp(16),0,0);root.addView(voiceCard,vp);
+        LinearLayout row=new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        usage.addView(row);
+        tvCost=text("RM0.00 / RM30.00",23,true,Color.rgb(52,35,49));
+        row.addView(tvCost,new LinearLayout.LayoutParams(0,-2,1));
+        tvRemain=text("Baki RM30.00",14,true,Color.rgb(38,115,77));
+        row.addView(tvRemain);
+        tvMeta=text("Native AudioRecord • WebSocket • bukan WebView/WebRTC",11,false,Color.rgb(128,106,120));
+        usage.addView(tvMeta);
 
-        TextView mic=text("🎙",76,false,Color.rgb(139,45,97));mic.setGravity(Gravity.CENTER);voiceCard.addView(mic);
-        tvState=text("Bersedia",25,true,Color.rgb(52,35,49));tvState.setGravity(Gravity.CENTER);voiceCard.addView(tvState);
-        tvHint=text("V5.5 guna microphone native Android terus. Tekan Mula Cakap.",14,false,Color.rgb(128,106,120));tvHint.setGravity(Gravity.CENTER);tvHint.setPadding(0,dp(8),0,dp(12));voiceCard.addView(tvHint);
+        LinearLayout voice=new LinearLayout(this);
+        voice.setOrientation(LinearLayout.VERTICAL);
+        voice.setGravity(Gravity.CENTER_HORIZONTAL);
+        voice.setPadding(dp(18),dp(28),dp(18),dp(24));
+        voice.setBackgroundColor(Color.WHITE);
+        LinearLayout.LayoutParams vp=new LinearLayout.LayoutParams(-1,-2);
+        vp.setMargins(0,dp(16),0,0);
+        root.addView(voice,vp);
 
-        progress=new ProgressBar(this);progress.setVisibility(View.GONE);voiceCard.addView(progress);
+        TextView mic=text("🎙",76,false,Color.rgb(139,45,97));
+        mic.setGravity(Gravity.CENTER);
+        voice.addView(mic);
+        tvState=text("Bersedia",25,true,Color.rgb(52,35,49));
+        tvState.setGravity(Gravity.CENTER);
+        voice.addView(tvState);
+        tvHint=text("Tekan Mula Cakap. V5.6 tidak lagi menggunakan microphone WebView atau native WebRTC.",14,false,Color.rgb(128,106,120));
+        tvHint.setGravity(Gravity.CENTER);
+        tvHint.setPadding(0,dp(8),0,dp(12));
+        voice.addView(tvHint);
 
-        LinearLayout buttons=new LinearLayout(this);buttons.setOrientation(LinearLayout.HORIZONTAL);buttons.setPadding(0,dp(12),0,0);voiceCard.addView(buttons,new LinearLayout.LayoutParams(-1,-2));
-        btnStart=new Button(this);btnStart.setText("🎙 MULA CAKAP");btnStart.setAllCaps(false);buttons.addView(btnStart,new LinearLayout.LayoutParams(0,dp(58),1));
-        btnStop=new Button(this);btnStop.setText("Tamat");btnStop.setAllCaps(false);btnStop.setEnabled(false);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(0,dp(58),0.45f);sp.setMargins(dp(8),0,0,0);buttons.addView(btnStop,sp);
+        progress=new ProgressBar(this);
+        progress.setVisibility(android.view.View.GONE);
+        voice.addView(progress);
 
-        tvError=text("",13,false,Color.rgb(157,48,66));tvError.setPadding(dp(12),dp(12),dp(12),dp(12));tvError.setVisibility(View.GONE);voiceCard.addView(tvError,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout buttons=new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.setPadding(0,dp(12),0,0);
+        voice.addView(buttons,new LinearLayout.LayoutParams(-1,-2));
 
-        root.addView(text("PERBUALAN",12,true,Color.rgb(139,45,97)),new LinearLayout.LayoutParams(-1,-2));
-        tvTranscript=text("Belum ada perbualan.",14,false,Color.rgb(62,49,64));tvTranscript.setPadding(0,dp(8),0,0);tvTranscript.setMovementMethod(new ScrollingMovementMethod());root.addView(tvTranscript);
+        btnStart=new Button(this);
+        btnStart.setText("🎙 MULA CAKAP");
+        btnStart.setAllCaps(false);
+        buttons.addView(btnStart,new LinearLayout.LayoutParams(0,dp(58),1));
+
+        btnStop=new Button(this);
+        btnStop.setText("Tamat");
+        btnStop.setAllCaps(false);
+        btnStop.setEnabled(false);
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(0,dp(58),0.45f);
+        sp.setMargins(dp(8),0,0,0);
+        buttons.addView(btnStop,sp);
+
+        tvError=text("",13,false,Color.rgb(157,48,66));
+        tvError.setPadding(dp(12),dp(12),dp(12),dp(12));
+        tvError.setVisibility(android.view.View.GONE);
+        voice.addView(tvError,new LinearLayout.LayoutParams(-1,-2));
+
+        LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,-2);
+        tp.setMargins(0,dp(18),0,0);
+        root.addView(text("PERBUALAN",12,true,Color.rgb(139,45,97)),tp);
+        tvTranscript=text("Belum ada perbualan.",14,false,Color.rgb(62,49,64));
+        tvTranscript.setPadding(0,dp(8),0,0);
+        root.addView(tvTranscript);
 
         btnStart.setOnClickListener(v->startVoice());
         btnStop.setOnClickListener(v->stopVoice(false));
@@ -112,28 +167,34 @@ public class VoiceActivity extends Activity {
     }
 
     private TextView text(String s,float size,boolean bold,int color){
-        TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);if(bold)v.setTypeface(null,android.graphics.Typeface.BOLD);return v;
+        TextView v=new TextView(this);
+        v.setText(s);v.setTextSize(size);v.setTextColor(color);
+        if(bold)v.setTypeface(null,android.graphics.Typeface.BOLD);
+        return v;
     }
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
 
     private void configureAudioRoute(){
         audioManager=(AudioManager)getSystemService(Context.AUDIO_SERVICE);
         if(audioManager!=null){
-            oldAudioMode=audioManager.getMode();
-            oldSpeaker=audioManager.isSpeakerphoneOn();
-            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-            audioManager.setSpeakerphoneOn(true);
+            try{
+                oldMode=audioManager.getMode();
+                oldSpeaker=audioManager.isSpeakerphoneOn();
+                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                audioManager.setSpeakerphoneOn(true);
+            }catch(Exception ignored){}
         }
     }
+
     private void restoreAudioRoute(){
         if(audioManager!=null){
-            try{audioManager.setMode(oldAudioMode);audioManager.setSpeakerphoneOn(oldSpeaker);}catch(Exception ignored){}
+            try{audioManager.setMode(oldMode);audioManager.setSpeakerphoneOn(oldSpeaker);}catch(Exception ignored){}
         }
     }
 
     private void ready(){
         tvState.setText("Bersedia");
-        tvHint.setText("Tekan Mula Cakap. Mic sekarang menggunakan native Android WebRTC, bukan browser/WebView.");
+        tvHint.setText("Tekan Mula Cakap. Audio kini ditangkap terus oleh Android AudioRecord.");
         btnStart.setEnabled(true);
     }
 
@@ -145,173 +206,254 @@ public class VoiceActivity extends Activity {
         }
     }
 
-    private void setBusy(String state,String hint){
-        runOnUiThread(()->{tvState.setText(state);tvHint.setText(hint);progress.setVisibility(View.VISIBLE);btnStart.setEnabled(false);tvError.setVisibility(View.GONE);});
+    private void setBusy(final String state,final String hint){
+        runOnUiThread(()->{
+            tvState.setText(state);tvHint.setText(hint);
+            progress.setVisibility(android.view.View.VISIBLE);
+            btnStart.setEnabled(false);btnStop.setEnabled(false);
+            tvError.setVisibility(android.view.View.GONE);
+        });
     }
+
     private void liveState(){
-        runOnUiThread(()->{tvState.setText("Saya dengar, Syam…");tvHint.setText("Terus bercakap. Hafiz akan jawab dengan suara.");progress.setVisibility(View.GONE);btnStart.setEnabled(false);btnStop.setEnabled(true);});
+        runOnUiThread(()->{
+            tvState.setText("Saya dengar, Syam…");
+            tvHint.setText("Terus bercakap. Hafiz akan jawab dengan suara.");
+            progress.setVisibility(android.view.View.GONE);
+            btnStart.setEnabled(false);btnStop.setEnabled(true);
+        });
     }
-    private void showError(String msg){
-        runOnUiThread(()->{progress.setVisibility(View.GONE);tvState.setText("Sambungan terhenti");tvHint.setText("Native Voice tidak menggunakan WebView microphone.");tvError.setText(msg);tvError.setVisibility(View.VISIBLE);btnStart.setText("SAMBUNG SEMULA");btnStart.setEnabled(true);btnStop.setEnabled(false);});
+
+    private void showError(final String msg){
+        runOnUiThread(()->{
+            progress.setVisibility(android.view.View.GONE);
+            tvState.setText("Sambungan terhenti");
+            tvHint.setText("V5.6 kekalkan skrin ini supaya ralat sebenar boleh dilihat.");
+            tvError.setText(msg==null?"Voice gagal disambungkan.":msg);
+            tvError.setVisibility(android.view.View.VISIBLE);
+            btnStart.setText("SAMBUNG SEMULA");
+            btnStart.setEnabled(true);btnStop.setEnabled(false);
+        });
     }
 
     private void startVoice(){
-        if(starting||peer!=null)return;
+        if(starting||ws!=null)return;
         if(android.os.Build.VERSION.SDK_INT>=23&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_MIC);return;
         }
-        starting=true;ended=false;setBusy("Menyambung…","Menyediakan native audio + OpenAI Realtime.");
+        starting=true;ended=false;
+        btnStart.setText("🎙 MULA CAKAP");
+        setBusy("Menyambung…","Minta short-lived Voice token daripada Lovely Accounts.");
         io.submit(()->{
             try{
                 JSONObject s=apiJson("POST","/voice/session",new JSONObject());
                 sessionId=s.optString("session_id","");
                 model=s.optString("model","");
-                String secret=s.optString("client_secret","");
-                if(secret.isEmpty())throw new Exception("OpenAI Voice belum dikonfigurasi pada backend.");
+                clientSecret=s.optString("client_secret","");
+                if(clientSecret.isEmpty())throw new Exception("OpenAI Voice client secret tidak diterima.");
                 renderUsage(s.optJSONObject("usage"));
-                initWebRtc();
-                createAndSendOffer(secret);
+
+                prepareAudioPlayback();
+                prepareAudioCapture();
+                connectWebSocket();
             }catch(Exception e){
-                cleanupRtc();
-                showError(e.getMessage()==null?"Voice gagal disambungkan.":e.getMessage());
-            }finally{starting=false;}
-        });
-    }
-
-    private void initWebRtc() throws Exception{
-        runOnUiThread(()->tvHint.setText("Membuka native microphone Android…"));
-        PeerConnectionFactory.InitializationOptions init=PeerConnectionFactory.InitializationOptions.builder(getApplicationContext()).createInitializationOptions();
-        PeerConnectionFactory.initialize(init);
-
-        audioDeviceModule=JavaAudioDeviceModule.builder(getApplicationContext())
-                .setUseHardwareAcousticEchoCanceler(true)
-                .setUseHardwareNoiseSuppressor(true)
-                .setAudioRecordErrorCallback(new JavaAudioDeviceModule.AudioRecordErrorCallback(){
-                    @Override public void onWebRtcAudioRecordInitError(String e){showError("Native mic init error: "+e);}
-                    @Override public void onWebRtcAudioRecordStartError(JavaAudioDeviceModule.AudioRecordStartErrorCode c,String e){showError("Native mic start error: "+e);}
-                    @Override public void onWebRtcAudioRecordError(String e){showError("Native mic error: "+e);}
-                })
-                .setAudioTrackErrorCallback(new JavaAudioDeviceModule.AudioTrackErrorCallback(){
-                    @Override public void onWebRtcAudioTrackInitError(String e){showError("Speaker init error: "+e);}
-                    @Override public void onWebRtcAudioTrackStartError(JavaAudioDeviceModule.AudioTrackStartErrorCode c,String e){showError("Speaker start error: "+e);}
-                    @Override public void onWebRtcAudioTrackError(String e){showError("Speaker error: "+e);}
-                })
-                .createAudioDeviceModule();
-
-        factory=PeerConnectionFactory.builder()
-                .setAudioDeviceModule(audioDeviceModule)
-                .createPeerConnectionFactory();
-
-        PeerConnection.RTCConfiguration cfg=new PeerConnection.RTCConfiguration(new ArrayList<>());
-        cfg.sdpSemantics=PeerConnection.SdpSemantics.UNIFIED_PLAN;
-        cfg.continualGatheringPolicy=PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
-
-        peer=factory.createPeerConnection(cfg,new PeerConnection.Observer(){
-            @Override public void onSignalingChange(PeerConnection.SignalingState s){}
-            @Override public void onIceConnectionChange(PeerConnection.IceConnectionState s){
-                if(s==PeerConnection.IceConnectionState.FAILED)showError("WebRTC ICE connection gagal.");
-            }
-            @Override public void onStandardizedIceConnectionChange(PeerConnection.IceConnectionState s){}
-            @Override public void onConnectionChange(PeerConnection.PeerConnectionState s){
-                if(s==PeerConnection.PeerConnectionState.CONNECTED)liveState();
-                if((s==PeerConnection.PeerConnectionState.FAILED||s==PeerConnection.PeerConnectionState.DISCONNECTED)&&!ended)showError("Native WebRTC terputus: "+s);
-            }
-            @Override public void onIceConnectionReceivingChange(boolean b){}
-            @Override public void onIceGatheringChange(PeerConnection.IceGatheringState s){}
-            @Override public void onIceCandidate(IceCandidate c){}
-            @Override public void onIceCandidatesRemoved(IceCandidate[] c){}
-            @Override public void onAddStream(MediaStream s){}
-            @Override public void onRemoveStream(MediaStream s){}
-            @Override public void onDataChannel(DataChannel dc){}
-            @Override public void onRenegotiationNeeded(){}
-            @Override public void onAddTrack(RtpReceiver receiver,MediaStream[] streams){
-                MediaStreamTrack t=receiver.track();
-                if(t instanceof AudioTrack)((AudioTrack)t).setEnabled(true);
-            }
-            @Override public void onTrack(RtpTransceiver transceiver){
-                MediaStreamTrack t=transceiver.getReceiver().track();
-                if(t instanceof AudioTrack)((AudioTrack)t).setEnabled(true);
-            }
-        });
-        if(peer==null)throw new Exception("PeerConnection native gagal dibuat.");
-
-        MediaConstraints ac=new MediaConstraints();
-        ac.optional.add(new MediaConstraints.KeyValuePair("googEchoCancellation","true"));
-        ac.optional.add(new MediaConstraints.KeyValuePair("googNoiseSuppression","true"));
-        audioSource=factory.createAudioSource(ac);
-        localAudioTrack=factory.createAudioTrack("hafiz-mic",audioSource);
-        localAudioTrack.setEnabled(true);
-        List<String> streamIds=new ArrayList<>();streamIds.add("hafiz-stream");
-        RtpSender sender=peer.addTrack(localAudioTrack,streamIds);
-        if(sender==null)throw new Exception("Native microphone track gagal ditambah.");
-
-        DataChannel.Init di=new DataChannel.Init();di.ordered=true;
-        dataChannel=peer.createDataChannel("oai-events",di);
-        dataChannel.registerObserver(new DataChannel.Observer(){
-            @Override public void onBufferedAmountChange(long previousAmount){}
-            @Override public void onStateChange(){
-                if(dataChannel.state()==DataChannel.State.OPEN)liveState();
-            }
-            @Override public void onMessage(DataChannel.Buffer buffer){
-                if(buffer.binary)return;
-                ByteBuffer bb=buffer.data;byte[] bytes=new byte[bb.remaining()];bb.get(bytes);
-                handleRealtimeEvent(new String(bytes,StandardCharsets.UTF_8));
+                cleanupVoice();
+                showError("V5.6: "+safeMsg(e));
+            }finally{
+                starting=false;
             }
         });
     }
 
-    private void createAndSendOffer(String secret) throws Exception{
-        final Object lock=new Object();
-        final SessionDescription[] offerOut=new SessionDescription[1];
-        final Exception[] err=new Exception[1];
-        MediaConstraints mc=new MediaConstraints();
-        peer.createOffer(new SimpleSdpObserver(){
-            @Override public void onCreateSuccess(SessionDescription sdp){
-                peer.setLocalDescription(new SimpleSdpObserver(){
-                    @Override public void onSetSuccess(){synchronized(lock){offerOut[0]=sdp;lock.notifyAll();}}
-                    @Override public void onSetFailure(String e){synchronized(lock){err[0]=new Exception(e);lock.notifyAll();}}
-                },sdp);
-            }
-            @Override public void onCreateFailure(String e){synchronized(lock){err[0]=new Exception(e);lock.notifyAll();}}
-        },mc);
-        synchronized(lock){if(offerOut[0]==null&&err[0]==null)lock.wait(15000);}
-        if(err[0]!=null)throw err[0];
-        if(offerOut[0]==null)throw new Exception("Timeout create WebRTC offer.");
-
-        String answerSdp=postSdp(offerOut[0].description,secret);
-        final Object lock2=new Object();final Exception[] err2=new Exception[1];final boolean[] ok={false};
-        peer.setRemoteDescription(new SimpleSdpObserver(){
-            @Override public void onSetSuccess(){synchronized(lock2){ok[0]=true;lock2.notifyAll();}}
-            @Override public void onSetFailure(String e){synchronized(lock2){err2[0]=new Exception(e);lock2.notifyAll();}}
-        },new SessionDescription(SessionDescription.Type.ANSWER,answerSdp));
-        synchronized(lock2){if(!ok[0]&&err2[0]==null)lock2.wait(15000);}
-        if(err2[0]!=null)throw err2[0];
-        if(!ok[0])throw new Exception("Timeout set OpenAI WebRTC answer.");
+    private void prepareAudioPlayback() throws Exception{
+        int min=AudioTrack.getMinBufferSize(24000,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT);
+        if(min<=0)min=24000;
+        AudioAttributes attrs=new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build();
+        AudioFormat fmt=new AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(24000)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .build();
+        audioTrack=new AudioTrack(attrs,fmt,Math.max(min,48000),AudioTrack.MODE_STREAM,AudioManager.AUDIO_SESSION_ID_GENERATE);
+        if(audioTrack.getState()!=AudioTrack.STATE_INITIALIZED)throw new Exception("Speaker AudioTrack gagal initialize.");
+        audioTrack.play();
     }
 
-    private String postSdp(String sdp,String secret) throws Exception{
-        HttpURLConnection c=(HttpURLConnection)new URL(OPENAI_CALLS).openConnection();
-        c.setRequestMethod("POST");c.setConnectTimeout(20000);c.setReadTimeout(30000);c.setDoOutput(true);
-        c.setRequestProperty("Authorization","Bearer "+secret);
-        c.setRequestProperty("Content-Type","application/sdp");
-        c.setRequestProperty("Accept","application/sdp");
-        try(OutputStream os=c.getOutputStream()){os.write(sdp.getBytes(StandardCharsets.UTF_8));}
-        int code=c.getResponseCode();
-        String body=readAll(code>=400?c.getErrorStream():c.getInputStream());
-        if(code>=400)throw new Exception("OpenAI Realtime gagal ("+code+"): "+body);
-        return body;
+    private void prepareAudioCapture() throws Exception{
+        AudioRecord rec=buildRecorder(24000);
+        if(rec!=null&&rec.getState()==AudioRecord.STATE_INITIALIZED){
+            audioRecord=rec;captureRate=24000;
+        }else{
+            if(rec!=null)try{rec.release();}catch(Exception ignored){}
+            rec=buildRecorder(48000);
+            if(rec==null||rec.getState()!=AudioRecord.STATE_INITIALIZED){
+                if(rec!=null)try{rec.release();}catch(Exception ignored){}
+                throw new Exception("Android AudioRecord gagal initialize pada 24kHz dan 48kHz.");
+            }
+            audioRecord=rec;captureRate=48000;
+        }
+        try{
+            int sid=audioRecord.getAudioSessionId();
+            if(AcousticEchoCanceler.isAvailable()){aec=AcousticEchoCanceler.create(sid);if(aec!=null)aec.setEnabled(true);}
+            if(NoiseSuppressor.isAvailable()){ns=NoiseSuppressor.create(sid);if(ns!=null)ns.setEnabled(true);}
+        }catch(Exception ignored){}
+    }
+
+    private AudioRecord buildRecorder(int rate){
+        int min=AudioRecord.getMinBufferSize(rate,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
+        if(min<=0)return null;
+        int[] sources=new int[]{MediaRecorder.AudioSource.VOICE_COMMUNICATION,MediaRecorder.AudioSource.VOICE_RECOGNITION,MediaRecorder.AudioSource.MIC};
+        for(int source:sources){
+            try{
+                AudioRecord r=new AudioRecord(source,rate,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(min*2,rate));
+                if(r.getState()==AudioRecord.STATE_INITIALIZED)return r;
+                r.release();
+            }catch(Exception ignored){}
+        }
+        return null;
+    }
+
+    private void connectWebSocket() throws Exception{
+        String wsUrl="wss://api.openai.com/v1/realtime?model="+java.net.URLEncoder.encode(model,"UTF-8");
+        wsClient=new OkHttpClient.Builder()
+                .pingInterval(20,java.util.concurrent.TimeUnit.SECONDS)
+                .build();
+        Request request=new Request.Builder()
+                .url(wsUrl)
+                .header("Authorization","Bearer "+clientSecret)
+                .header("OpenAI-Beta","realtime=v1")
+                .build();
+
+        ws=wsClient.newWebSocket(request,new WebSocketListener(){
+            @Override public void onOpen(WebSocket webSocket,Response response){
+                try{
+                    JSONObject upd=new JSONObject();
+                    upd.put("type","session.update");
+                    JSONObject session=new JSONObject();session.put("type","realtime");
+                    JSONObject audio=new JSONObject();
+                    JSONObject input=new JSONObject();
+                    input.put("format",new JSONObject().put("type","audio/pcm").put("rate",24000));
+                    JSONObject output=new JSONObject();
+                    output.put("format",new JSONObject().put("type","audio/pcm").put("rate",24000));
+                    audio.put("input",input);audio.put("output",output);
+                    session.put("audio",audio);upd.put("session",session);
+                    webSocket.send(upd.toString());
+                    startCaptureLoop();
+                    liveState();
+                }catch(Exception e){showError("WebSocket open: "+safeMsg(e));}
+            }
+            @Override public void onMessage(WebSocket webSocket,String text){
+                handleRealtimeEvent(text);
+            }
+            @Override public void onClosing(WebSocket webSocket,int code,String reason){
+                if(!ended)showError("OpenAI Voice sedang tutup sambungan ("+code+"): "+reason);
+            }
+            @Override public void onClosed(WebSocket webSocket,int code,String reason){
+                if(!ended)showError("OpenAI Voice tertutup ("+code+"): "+reason);
+            }
+            @Override public void onFailure(WebSocket webSocket,Throwable t,Response response){
+                String extra=response!=null?" HTTP "+response.code():"";
+                if(!ended)showError("WebSocket gagal"+extra+": "+safeMsg(t));
+            }
+        });
+    }
+
+    private void startCaptureLoop(){
+        if(audioRecord==null)return;
+        recording.set(true);
+        captureExec.submit(()->{
+            try{
+                audioRecord.startRecording();
+                if(audioRecord.getRecordingState()!=AudioRecord.RECORDSTATE_RECORDING)throw new Exception("AudioRecord tidak masuk RECORDING state.");
+                int inSamples=(captureRate==24000?4800:9600);
+                short[] in=new short[inSamples];
+                while(recording.get()&&!ended){
+                    int n=audioRecord.read(in,0,in.length,AudioRecord.READ_BLOCKING);
+                    if(n<=0)continue;
+                    byte[] pcm;
+                    if(captureRate==24000){
+                        pcm=shortsToBytes(in,n);
+                    }else{
+                        int outN=n/2;
+                        short[] down=new short[outN];
+                        for(int i=0;i<outN;i++)down[i]=in[i*2];
+                        pcm=shortsToBytes(down,outN);
+                    }
+                    WebSocket current=ws;
+                    if(current!=null){
+                        JSONObject ev=new JSONObject();
+                        ev.put("type","input_audio_buffer.append");
+                        ev.put("audio",Base64.encodeToString(pcm,Base64.NO_WRAP));
+                        current.send(ev.toString());
+                    }
+                }
+            }catch(Exception e){
+                if(!ended)showError("Native microphone: "+safeMsg(e));
+            }finally{
+                try{if(audioRecord!=null&&audioRecord.getRecordingState()==AudioRecord.RECORDSTATE_RECORDING)audioRecord.stop();}catch(Exception ignored){}
+            }
+        });
+    }
+
+    private byte[] shortsToBytes(short[] data,int n){
+        byte[] out=new byte[n*2];
+        for(int i=0,j=0;i<n;i++){
+            short s=data[i];
+            out[j++]=(byte)(s&0xff);
+            out[j++]=(byte)((s>>8)&0xff);
+        }
+        return out;
+    }
+
+    private void playPcmDelta(String b64){
+        if(b64==null||b64.isEmpty()||audioTrack==null)return;
+        final byte[] data;
+        try{data=Base64.decode(b64,Base64.DEFAULT);}catch(Exception e){return;}
+        playbackExec.submit(()->{
+            try{
+                if(audioTrack!=null&&audioTrack.getState()==AudioTrack.STATE_INITIALIZED){
+                    audioTrack.write(data,0,data.length,AudioTrack.WRITE_BLOCKING);
+                }
+            }catch(Exception ignored){}
+        });
+    }
+
+    private void clearPlayback(){
+        try{
+            if(audioTrack!=null){
+                audioTrack.pause();
+                audioTrack.flush();
+                audioTrack.play();
+            }
+        }catch(Exception ignored){}
     }
 
     private void handleRealtimeEvent(String raw){
         try{
-            JSONObject evt=new JSONObject(raw);String type=evt.optString("type","");
-            if(type.equals("input_audio_buffer.speech_started"))runOnUiThread(()->{tvState.setText("Saya dengar, Syam…");tvHint.setText("Terus bercakap.");});
-            else if(type.equals("input_audio_buffer.speech_stopped"))runOnUiThread(()->{tvState.setText("Hafiz sedang fikir…");tvHint.setText("Sedang memahami arahan.");});
-            else if(type.equals("conversation.item.input_audio_transcription.completed"))appendTranscript("Syam",evt.optString("transcript",""));
-            else if(type.equals("response.output_audio_transcript.done"))appendTranscript("Hafiz",evt.optString("transcript",""));
-            else if(type.equals("response.done"))handleResponseDone(evt.optJSONObject("response"));
-            else if(type.equals("error")){
-                JSONObject er=evt.optJSONObject("error");showError(er!=null?er.optString("message","Ralat Realtime"):"Ralat Realtime");
+            JSONObject evt=new JSONObject(raw);
+            String type=evt.optString("type","");
+            if("session.created".equals(type)||"session.updated".equals(type)){
+                liveState();
+            }else if("input_audio_buffer.speech_started".equals(type)){
+                clearPlayback();
+                runOnUiThread(()->{tvState.setText("Saya dengar, Syam…");tvHint.setText("Terus bercakap.");});
+            }else if("input_audio_buffer.speech_stopped".equals(type)){
+                runOnUiThread(()->{tvState.setText("Hafiz sedang fikir…");tvHint.setText("Sedang memahami arahan.");});
+            }else if("conversation.item.input_audio_transcription.completed".equals(type)){
+                appendTranscript("Syam",evt.optString("transcript",""));
+            }else if("response.output_audio.delta".equals(type)){
+                runOnUiThread(()->{tvState.setText("Hafiz sedang jawab…");tvHint.setText("Syam boleh mencelah bila-bila masa.");});
+                playPcmDelta(evt.optString("delta",""));
+            }else if("response.output_audio_transcript.done".equals(type)){
+                appendTranscript("Hafiz",evt.optString("transcript",""));
+            }else if("response.done".equals(type)){
+                handleResponseDone(evt.optJSONObject("response"));
+            }else if("error".equals(type)){
+                JSONObject er=evt.optJSONObject("error");
+                showError("OpenAI: "+(er!=null?er.optString("message","Ralat Realtime"):"Ralat Realtime"));
             }
         }catch(Exception ignored){}
     }
@@ -320,94 +462,163 @@ public class VoiceActivity extends Activity {
         if(response==null)return;
         JSONObject usage=response.optJSONObject("usage");
         String responseId=response.optString("id","");
-        if(usage!=null&&!responseId.isEmpty())io.submit(()->{
-            try{
-                JSONObject b=new JSONObject();b.put("session_id",sessionId);b.put("response_id",responseId);b.put("model",model);b.put("usage",usage);
-                JSONObject r=apiJson("POST","/voice/usage",b);renderUsage(r.optJSONObject("usage"));
-            }catch(Exception ignored){}
-        });
+        if(usage!=null&&!responseId.isEmpty()){
+            io.submit(()->{
+                try{
+                    JSONObject b=new JSONObject();
+                    b.put("session_id",sessionId);b.put("response_id",responseId);b.put("model",model);b.put("usage",usage);
+                    JSONObject r=apiJson("POST","/voice/usage",b);
+                    renderUsage(r.optJSONObject("usage"));
+                }catch(Exception ignored){}
+            });
+        }
 
         JSONArray output=response.optJSONArray("output");
-        if(output!=null)for(int i=0;i<output.length();i++){
-            JSONObject item=output.optJSONObject(i);
-            if(item!=null&&"function_call".equals(item.optString("type")))dispatchTool(item);
+        if(output!=null){
+            for(int i=0;i<output.length();i++){
+                JSONObject item=output.optJSONObject(i);
+                if(item!=null&&"function_call".equals(item.optString("type")))dispatchTool(item);
+            }
         }
         runOnUiThread(()->{tvState.setText("Saya dengar, Syam…");tvHint.setText("Cakap arahan seterusnya bila-bila masa.");});
     }
 
     private void dispatchTool(JSONObject item){
-        final String callId=item.optString("call_id",""),name=item.optString("name","");
+        final String callId=item.optString("call_id","");
+        final String name=item.optString("name","");
         if(callId.isEmpty()||name.isEmpty())return;
         io.submit(()->{
             String output;
             try{
-                JSONObject args;try{args=new JSONObject(item.optString("arguments","{}"));}catch(Exception e){args=new JSONObject();}
+                JSONObject args;
+                try{args=new JSONObject(item.optString("arguments","{}"));}catch(Exception e){args=new JSONObject();}
                 JSONObject b=new JSONObject();b.put("name",name);b.put("arguments",args);
-                JSONObject r=apiJson("POST","/voice/tool",b);output=(r.optBoolean("ok")?r.opt("result"):new JSONObject().put("error",r.optString("detail","Tool gagal"))).toString();
+                JSONObject r=apiJson("POST","/voice/tool",b);
+                Object payload=r.optBoolean("ok")?r.opt("result"):new JSONObject().put("error",r.optString("detail","Tool gagal"));
+                output=String.valueOf(payload);
             }catch(Exception e){
-                try{output=new JSONObject().put("error",String.valueOf(e.getMessage())).toString();}
+                try{output=new JSONObject().put("error",safeMsg(e)).toString();}
                 catch(Exception ignored){output="{\"error\":\"Tool failed\"}";}
             }
             try{
-                JSONObject ev=new JSONObject();ev.put("type","conversation.item.create");
-                JSONObject it=new JSONObject();it.put("type","function_call_output");it.put("call_id",callId);it.put("output",output);ev.put("item",it);
-                sendEvent(ev);sendEvent(new JSONObject().put("type","response.create"));
+                JSONObject ev=new JSONObject();
+                ev.put("type","conversation.item.create");
+                JSONObject it=new JSONObject();
+                it.put("type","function_call_output");it.put("call_id",callId);it.put("output",output);
+                ev.put("item",it);
+                sendWs(ev);
+                sendWs(new JSONObject().put("type","response.create"));
             }catch(Exception ignored){}
         });
     }
-    private void sendEvent(JSONObject j){
-        if(dataChannel==null||dataChannel.state()!=DataChannel.State.OPEN)return;
-        ByteBuffer bb=ByteBuffer.wrap(j.toString().getBytes(StandardCharsets.UTF_8));
-        dataChannel.send(new DataChannel.Buffer(bb,false));
+
+    private void sendWs(JSONObject j){
+        WebSocket current=ws;
+        if(current!=null)current.send(j.toString());
     }
+
     private void appendTranscript(String who,String s){
         if(s==null||s.trim().isEmpty())return;
         runOnUiThread(()->{
             String old=tvTranscript.getText().toString();
-            if(old.equals("Belum ada perbualan."))old="";
+            if("Belum ada perbualan.".equals(old))old="";
             tvTranscript.setText(who+": "+s.trim()+"\n\n"+old);
         });
     }
 
     private void renderUsage(JSONObject u){
         if(u==null)return;
-        double spend=u.optDouble("effective_spend_myr",0),limit=u.optDouble("monthly_limit_myr",30),remain=u.optDouble("remaining_myr",Math.max(0,limit-spend));
-        runOnUiThread(()->{tvCost.setText(String.format(Locale.US,"RM%.2f / RM%.2f",spend,limit));tvRemain.setText(String.format(Locale.US,"Baki RM%.2f",remain));tvMeta.setText(String.format(Locale.US,"Native Android mic • Live estimate RM%.2f",u.optDouble("estimated_live_myr",0)));});
+        double spend=u.optDouble("effective_spend_myr",0);
+        double limit=u.optDouble("monthly_limit_myr",30);
+        double remain=u.optDouble("remaining_myr",Math.max(0,limit-spend));
+        runOnUiThread(()->{
+            tvCost.setText(String.format(Locale.US,"RM%.2f / RM%.2f",spend,limit));
+            tvRemain.setText(String.format(Locale.US,"Baki RM%.2f",remain));
+            tvMeta.setText(String.format(Locale.US,"Native AudioRecord • Live estimate RM%.2f",u.optDouble("estimated_live_myr",0)));
+        });
     }
-    private void refreshUsage(){io.submit(()->{try{renderUsage(apiJson("GET","/usage",null));}catch(Exception ignored){}});}
+
+    private void refreshUsage(){
+        io.submit(()->{
+            try{renderUsage(apiJson("GET","/usage",null));}
+            catch(Exception ignored){}
+        });
+    }
 
     private JSONObject apiJson(String method,String path,JSONObject body)throws Exception{
         HttpURLConnection c=(HttpURLConnection)new URL(API+path).openConnection();
-        c.setRequestMethod(method);c.setConnectTimeout(20000);c.setReadTimeout(30000);c.setRequestProperty("Accept","application/json");c.setRequestProperty("Authorization","Bearer "+mobileToken);
-        if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json; charset=utf-8");try(OutputStream os=c.getOutputStream()){os.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
-        int code=c.getResponseCode();String txt=readAll(code>=400?c.getErrorStream():c.getInputStream());JSONObject r=txt.trim().isEmpty()?new JSONObject():new JSONObject(txt);if(code>=400)throw new Exception(r.optString("detail","HTTP "+code));return r;
+        c.setRequestMethod(method);c.setConnectTimeout(20000);c.setReadTimeout(30000);
+        c.setRequestProperty("Accept","application/json");
+        c.setRequestProperty("Authorization","Bearer "+mobileToken);
+        if(body!=null){
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type","application/json; charset=utf-8");
+            try(OutputStream os=c.getOutputStream()){
+                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            }
+        }
+        int code=c.getResponseCode();
+        String txt=readAll(code>=400?c.getErrorStream():c.getInputStream());
+        JSONObject r=txt.trim().isEmpty()?new JSONObject():new JSONObject(txt);
+        if(code>=400)throw new Exception(r.optString("detail","HTTP "+code));
+        return r;
     }
-    private String readAll(InputStream in)throws Exception{if(in==null)return "";ByteArrayOutputStream b=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;while((n=in.read(buf))>0)b.write(buf,0,n);return b.toString("UTF-8");}
+
+    private String readAll(InputStream in)throws Exception{
+        if(in==null)return "";
+        ByteArrayOutputStream b=new ByteArrayOutputStream();
+        byte[] buf=new byte[8192];int n;
+        while((n=in.read(buf))>0)b.write(buf,0,n);
+        return b.toString("UTF-8");
+    }
+
+    private String safeMsg(Throwable t){
+        if(t==null)return "Ralat tidak diketahui.";
+        String m=t.getMessage();
+        return (m==null||m.trim().isEmpty())?t.getClass().getSimpleName():m;
+    }
 
     private void stopVoice(boolean silent){
         ended=true;
-        final String sid=sessionId;sessionId="";
-        if(!sid.isEmpty())io.submit(()->{try{JSONObject b=new JSONObject().put("session_id",sid);apiJson("POST","/voice/end",b);}catch(Exception ignored){}});
-        cleanupRtc();
-        if(!silent)runOnUiThread(()->{tvState.setText("Sesi tamat");tvHint.setText("Tekan Mula Cakap untuk sesi baru.");btnStart.setText("🎙 MULA CAKAP");btnStart.setEnabled(true);btnStop.setEnabled(false);progress.setVisibility(View.GONE);});
+        recording.set(false);
+        final String sid=sessionId;
+        sessionId="";
+        if(!sid.isEmpty()){
+            io.submit(()->{
+                try{apiJson("POST","/voice/end",new JSONObject().put("session_id",sid));}
+                catch(Exception ignored){}
+            });
+        }
+        cleanupVoice();
+        if(!silent){
+            runOnUiThread(()->{
+                tvState.setText("Sesi tamat");
+                tvHint.setText("Tekan Mula Cakap untuk sesi baru.");
+                btnStart.setText("🎙 MULA CAKAP");
+                btnStart.setEnabled(true);btnStop.setEnabled(false);
+                progress.setVisibility(android.view.View.GONE);
+            });
+        }
     }
 
-    private void cleanupRtc(){
-        try{if(dataChannel!=null){dataChannel.unregisterObserver();dataChannel.close();dataChannel.dispose();}}catch(Exception ignored){}dataChannel=null;
-        try{if(peer!=null){peer.close();peer.dispose();}}catch(Exception ignored){}peer=null;
-        try{if(localAudioTrack!=null)localAudioTrack.dispose();}catch(Exception ignored){}localAudioTrack=null;
-        try{if(audioSource!=null)audioSource.dispose();}catch(Exception ignored){}audioSource=null;
-        try{if(factory!=null)factory.dispose();}catch(Exception ignored){}factory=null;
-        try{if(audioDeviceModule!=null)audioDeviceModule.release();}catch(Exception ignored){}audioDeviceModule=null;
+    private synchronized void cleanupVoice(){
+        recording.set(false);
+        try{if(audioRecord!=null&&audioRecord.getRecordingState()==AudioRecord.RECORDSTATE_RECORDING)audioRecord.stop();}catch(Exception ignored){}
+        try{if(aec!=null)aec.release();}catch(Exception ignored){}aec=null;
+        try{if(ns!=null)ns.release();}catch(Exception ignored){}ns=null;
+        try{if(audioRecord!=null)audioRecord.release();}catch(Exception ignored){}audioRecord=null;
+        try{if(audioTrack!=null){audioTrack.pause();audioTrack.flush();audioTrack.stop();audioTrack.release();}}catch(Exception ignored){}audioTrack=null;
+        try{if(ws!=null)ws.close(1000,"done");}catch(Exception ignored){}ws=null;
+        if(wsClient!=null){try{wsClient.dispatcher().executorService().shutdown();}catch(Exception ignored){}wsClient=null;}
+        clientSecret="";
     }
 
     @Override public void onBackPressed(){stopVoice(true);super.onBackPressed();}
-    @Override protected void onDestroy(){stopVoice(true);restoreAudioRoute();io.shutdownNow();super.onDestroy();}
 
-    private abstract static class SimpleSdpObserver implements SdpObserver{
-        @Override public void onCreateSuccess(SessionDescription sdp){}
-        @Override public void onSetSuccess(){}
-        @Override public void onCreateFailure(String error){}
-        @Override public void onSetFailure(String error){}
+    @Override protected void onDestroy(){
+        stopVoice(true);
+        restoreAudioRoute();
+        io.shutdownNow();captureExec.shutdownNow();playbackExec.shutdownNow();
+        super.onDestroy();
     }
 }

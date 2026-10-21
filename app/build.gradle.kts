@@ -6,11 +6,11 @@ android {
         applicationId = "com.lovelyboutique.hafiz"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "5.5.0"
+        versionCode = 13
+        versionName = "5.6.0"
     }
     buildTypes { release { isMinifyEnabled = false } }
 }
 dependencies {
-    implementation("io.github.webrtc-sdk:android:150.7871.01")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
