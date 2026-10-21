@@ -84,7 +84,7 @@ public class VoiceActivity extends Activity {
         scroll.addView(root,new ScrollView.LayoutParams(-1,-2));
 
         root.addView(text("Hafiz",30,true,Color.rgb(67,35,58)));
-        root.addView(text("Account Manager • Native Audio V5.6",14,false,Color.rgb(128,106,120)));
+        root.addView(text("Account Manager • Native Audio V5.6.1",14,false,Color.rgb(128,106,120)));
 
         LinearLayout usage=new LinearLayout(this);
         usage.setOrientation(LinearLayout.VERTICAL);
@@ -324,7 +324,6 @@ public class VoiceActivity extends Activity {
         Request request=new Request.Builder()
                 .url(wsUrl)
                 .header("Authorization","Bearer "+clientSecret)
-                .header("OpenAI-Beta","realtime=v1")
                 .build();
 
         ws=wsClient.newWebSocket(request,new WebSocketListener(){
